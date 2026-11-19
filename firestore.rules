@@ -1,0 +1,358 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Primitive Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidToken(token) {
+      return token is string && token.size() >= 16 && token.size() <= 80 && token.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'tjwang.tax@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() || (
+        isVerifiedUser() && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidFormType(ft) {
+      return ft is string && ft in ['BE', 'B', 'M'];
+    }
+
+    function isValidYearOfAssessment(ya) {
+      return ya is string && ya in ['2024', '2025', '2026'];
+    }
+
+    function isValidWorkflowStatus(st) {
+      return st is string && st in [
+        '1. Reminder Sent',
+        '2. Follow-Up Pending',
+        '3. Booked-In (Awaiting Docs)',
+        '4. Docs Uploaded (Screening)',
+        '5. Incomplete Docs (Follow-Up)',
+        '6. Docs Complete',
+        '7. Assigned to PIC',
+        '8. In Progress',
+        '9. Pending Review',
+        '10. Review Queries',
+        '11. Work Done & Fee Confirmed',
+        '12. Draft & Invoice Sent',
+        '13. Signed & Paid',
+        '14. Submitted & Completed'
+      ];
+    }
+
+    function isValidBookInMap(b) {
+      return b is map
+        && b.keys().hasAll(['reminderSentDate', 'followUpCount', 'followUpLogs', 'bookedInDate', 'isBookedIn'])
+        && b.keys().hasOnly(['reminderSentDate', 'followUpCount', 'followUpLogs', 'bookedInDate', 'isBookedIn'])
+        && b.reminderSentDate is string && b.reminderSentDate.size() <= 40
+        && b.followUpCount is int && b.followUpCount >= 0 && b.followUpCount <= 500
+        && b.followUpLogs is list && b.followUpLogs.size() <= 50
+        && (b.followUpLogs.size() == 0 || b.followUpLogs[0] is map)
+        && b.bookedInDate is string && b.bookedInDate.size() <= 40
+        && b.isBookedIn is bool;
+    }
+
+    function isValidDocumentsMap(d) {
+      return d is map
+        && d.keys().hasAll([
+          'completenessStatus',
+          'uploadedFiles',
+          'bookInListing',
+          'missingItems',
+          'detectedReliefCategories',
+          'screeningSummary',
+          'lastScreenedAt'
+        ])
+        && d.keys().hasOnly([
+          'completenessStatus',
+          'uploadedFiles',
+          'bookInListing',
+          'missingItems',
+          'detectedReliefCategories',
+          'screeningSummary',
+          'lastScreenedAt'
+        ])
+        && d.completenessStatus is string
+        && d.completenessStatus in ['Not Uploaded', 'Screening Pending', 'Incomplete', 'Complete']
+        && d.uploadedFiles is list && d.uploadedFiles.size() <= 50
+        && (d.uploadedFiles.size() == 0 || d.uploadedFiles[0] is map)
+        && d.bookInListing is list && d.bookInListing.size() <= 100
+        && (d.bookInListing.size() == 0 || d.bookInListing[0] is map)
+        && d.missingItems is list && d.missingItems.size() <= 40
+        && (d.missingItems.size() == 0 || d.missingItems[0] is string)
+        && d.detectedReliefCategories is list && d.detectedReliefCategories.size() <= 30
+        && (d.detectedReliefCategories.size() == 0 || d.detectedReliefCategories[0] is string)
+        && d.screeningSummary is string && d.screeningSummary.size() <= 4000
+        && d.lastScreenedAt is string && d.lastScreenedAt.size() <= 40;
+    }
+
+    function isValidAssignmentMap(a) {
+      return a is map
+        && a.keys().hasAll([
+          'picName',
+          'reviewerName',
+          'startedAt',
+          'targetCompletionDate',
+          'submittedForReviewAt',
+          'reviewClearedAt',
+          'reviewStatus',
+          'reviewQueries'
+        ])
+        && a.keys().hasOnly([
+          'picName',
+          'reviewerName',
+          'startedAt',
+          'targetCompletionDate',
+          'submittedForReviewAt',
+          'reviewClearedAt',
+          'reviewStatus',
+          'reviewQueries'
+        ])
+        && a.picName is string && a.picName.size() <= 120
+        && a.reviewerName is string && a.reviewerName.size() <= 120
+        && a.startedAt is string && a.startedAt.size() <= 40
+        && a.targetCompletionDate is string && a.targetCompletionDate.size() <= 40
+        && a.submittedForReviewAt is string && a.submittedForReviewAt.size() <= 40
+        && a.reviewClearedAt is string && a.reviewClearedAt.size() <= 40
+        && a.reviewStatus is string
+        && a.reviewStatus in ['Unassigned', 'In Preparation', 'Pending Review', 'Queries Raised', 'Cleared']
+        && a.reviewQueries is list && a.reviewQueries.size() <= 50
+        && (a.reviewQueries.size() == 0 || a.reviewQueries[0] is map);
+    }
+
+    function isValidBillingMap(bl) {
+      return bl is map
+        && bl.keys().hasAll([
+          'workDoneNotes',
+          'feeAmount',
+          'disbursements',
+          'sstAmount',
+          'totalWithTax',
+          'draftSentDate',
+          'followUpCount',
+          'followUpLogs',
+          'isSignedBack',
+          'signedBackDate',
+          'signedCopyUrl',
+          'signedCopyFileName',
+          'isPaid',
+          'paymentDate',
+          'receiptRef'
+        ])
+        && bl.keys().hasOnly([
+          'workDoneNotes',
+          'feeAmount',
+          'disbursements',
+          'sstAmount',
+          'totalWithTax',
+          'draftSentDate',
+          'followUpCount',
+          'followUpLogs',
+          'isSignedBack',
+          'signedBackDate',
+          'signedCopyUrl',
+          'signedCopyFileName',
+          'isPaid',
+          'paymentDate',
+          'receiptRef'
+        ])
+        && bl.workDoneNotes is string && bl.workDoneNotes.size() <= 4000
+        && bl.feeAmount is number && bl.feeAmount >= 0 && bl.feeAmount <= 10000000
+        && bl.disbursements is number && bl.disbursements >= 0 && bl.disbursements <= 10000000
+        && bl.sstAmount is number && bl.sstAmount >= 0 && bl.sstAmount <= 10000000
+        && bl.totalWithTax is number && bl.totalWithTax >= 0 && bl.totalWithTax <= 20000000
+        && bl.draftSentDate is string && bl.draftSentDate.size() <= 40
+        && bl.followUpCount is int && bl.followUpCount >= 0 && bl.followUpCount <= 500
+        && bl.followUpLogs is list && bl.followUpLogs.size() <= 50
+        && (bl.followUpLogs.size() == 0 || bl.followUpLogs[0] is map)
+        && bl.isSignedBack is bool
+        && bl.signedBackDate is string && bl.signedBackDate.size() <= 40
+        && bl.signedCopyUrl is string && bl.signedCopyUrl.size() <= 500
+        && bl.signedCopyFileName is string && bl.signedCopyFileName.size() <= 200
+        && bl.isPaid is bool
+        && bl.paymentDate is string && bl.paymentDate.size() <= 40
+        && bl.receiptRef is string && bl.receiptRef.size() <= 120;
+    }
+
+    function isValidSubmissionMap(s) {
+      return s is map
+        && s.keys().hasAll([
+          'lhdnSubmissionDate',
+          'acknowledgementNo',
+          'taxPayableOrRefund',
+          'taxPosition',
+          'completedAt'
+        ])
+        && s.keys().hasOnly([
+          'lhdnSubmissionDate',
+          'acknowledgementNo',
+          'taxPayableOrRefund',
+          'taxPosition',
+          'completedAt'
+        ])
+        && s.lhdnSubmissionDate is string && s.lhdnSubmissionDate.size() <= 40
+        && s.acknowledgementNo is string && s.acknowledgementNo.size() <= 120
+        && s.taxPayableOrRefund is number && s.taxPayableOrRefund >= -100000000 && s.taxPayableOrRefund <= 100000000
+        && s.taxPosition is string && s.taxPosition in ['Payable', 'Refundable', 'Nil']
+        && s.completedAt is string && s.completedAt.size() <= 40;
+    }
+
+    // Master Validation Blueprint for TaxJob
+    function isValidTaxJob(data, jobId) {
+      return data.keys().hasAll([
+        'id',
+        'ownerUid',
+        'fileRef',
+        'clientName',
+        'icOrPassport',
+        'tinNumber',
+        'email',
+        'phone',
+        'formType',
+        'yearOfAssessment',
+        'status',
+        'portalToken',
+        'bookIn',
+        'documents',
+        'assignment',
+        'billing',
+        'submission',
+        'createdAt',
+        'updatedAt'
+      ])
+      && data.keys().hasOnly([
+        'id',
+        'ownerUid',
+        'fileRef',
+        'clientName',
+        'icOrPassport',
+        'tinNumber',
+        'email',
+        'phone',
+        'formType',
+        'yearOfAssessment',
+        'status',
+        'portalToken',
+        'bookIn',
+        'documents',
+        'assignment',
+        'billing',
+        'submission',
+        'createdAt',
+        'updatedAt'
+      ])
+      && isValidId(data.id) && data.id == jobId
+      && isValidId(data.ownerUid)
+      && data.fileRef is string && data.fileRef.size() >= 1 && data.fileRef.size() <= 40
+      && data.clientName is string && data.clientName.size() >= 1 && data.clientName.size() <= 160
+      && data.icOrPassport is string && data.icOrPassport.size() >= 1 && data.icOrPassport.size() <= 40
+      && data.tinNumber is string && data.tinNumber.size() >= 1 && data.tinNumber.size() <= 40
+      && data.email is string && data.email.size() <= 160
+      && data.phone is string && data.phone.size() <= 40
+      && isValidFormType(data.formType)
+      && isValidYearOfAssessment(data.yearOfAssessment)
+      && isValidWorkflowStatus(data.status)
+      && isValidToken(data.portalToken)
+      && isValidBookInMap(data.bookIn)
+      && isValidDocumentsMap(data.documents)
+      && isValidAssignmentMap(data.assignment)
+      && isValidBillingMap(data.billing)
+      && isValidSubmissionMap(data.submission)
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidAdminRecord(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'role', 'createdAt'])
+        && data.keys().hasOnly(['uid', 'email', 'role', 'createdAt'])
+        && isValidId(data.uid) && data.uid == userId
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.role is string && data.role == 'admin'
+        && data.createdAt is timestamp;
+    }
+
+    // --- Collection: taxJobs ---
+    match /taxJobs/{jobId} {
+      allow get: if isVerifiedUser()
+        && isValidId(jobId)
+        && (existing().ownerUid == request.auth.uid || isAdmin());
+
+      // Zero get()/exists() in list rules (Pillar 8 Cost-Optimization Clause)
+      allow list: if isVerifiedUser()
+        && (resource.data.ownerUid == request.auth.uid || isBootstrappedAdmin());
+
+      allow create: if isVerifiedUser()
+        && isValidId(jobId)
+        && isValidTaxJob(incoming(), jobId)
+        && incoming().ownerUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser()
+        && isValidId(jobId)
+        && isValidTaxJob(incoming(), jobId)
+        && incoming().id == existing().id
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().portalToken == existing().portalToken
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (existing().ownerUid == request.auth.uid || isAdmin())
+        && (existing().status != '14. Submitted & Completed' || isAdmin())
+        && (
+          isAdmin()
+          || incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          || incoming().diff(existing()).affectedKeys().hasOnly(['clientName', 'icOrPassport', 'tinNumber', 'email', 'phone', 'formType', 'yearOfAssessment', 'fileRef', 'updatedAt'])
+          || incoming().diff(existing()).affectedKeys().hasOnly(['bookIn', 'status', 'updatedAt'])
+          || incoming().diff(existing()).affectedKeys().hasOnly(['documents', 'status', 'updatedAt'])
+          || incoming().diff(existing()).affectedKeys().hasOnly(['assignment', 'status', 'updatedAt'])
+          || incoming().diff(existing()).affectedKeys().hasOnly(['billing', 'status', 'updatedAt'])
+          || incoming().diff(existing()).affectedKeys().hasOnly(['submission', 'status', 'updatedAt'])
+          || incoming().diff(existing()).affectedKeys().hasOnly(['bookIn', 'documents', 'status', 'updatedAt'])
+        );
+
+      allow delete: if isVerifiedUser()
+        && isValidId(jobId)
+        && (existing().ownerUid == request.auth.uid || isAdmin());
+    }
+
+    // --- Collection: admins ---
+    match /admins/{userId} {
+      allow get: if isVerifiedUser() && isValidId(userId) && (request.auth.uid == userId || isAdmin());
+      allow list: if isBootstrappedAdmin();
+      allow create: if isAdmin()
+        && isValidId(userId)
+        && isValidAdminRecord(incoming(), userId)
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isAdmin() && isValidId(userId);
+    }
+  }
+}

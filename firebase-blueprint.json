@@ -1,0 +1,173 @@
+{
+  "entities": {
+    "TaxJob": {
+      "title": "TaxJob",
+      "description": "Malaysian Individual Tax engagement record (Form BE, Form B, Form M) tracking the 14-stage lifecycle from annual reminder and book-in through Gemini AI document screening, PIC preparation, review clearance, fee billing, client sign-off, and LHDN e-Filing submission.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "fileRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "clientName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "icOrPassport": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "tinNumber": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "formType": {
+          "type": "string",
+          "enum": ["BE", "B", "M"]
+        },
+        "yearOfAssessment": {
+          "type": "string",
+          "enum": ["2024", "2025", "2026"]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "1. Reminder Sent",
+            "2. Follow-Up Pending",
+            "3. Booked-In (Awaiting Docs)",
+            "4. Docs Uploaded (Screening)",
+            "5. Incomplete Docs (Follow-Up)",
+            "6. Docs Complete",
+            "7. Assigned to PIC",
+            "8. In Progress",
+            "9. Pending Review",
+            "10. Review Queries",
+            "11. Work Done & Fee Confirmed",
+            "12. Draft & Invoice Sent",
+            "13. Signed & Paid",
+            "14. Submitted & Completed"
+          ]
+        },
+        "portalToken": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 80,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "bookIn": {
+          "type": "object",
+          "description": "Phase 1 reminder, follow-up counter, logs, and client book-in confirmation."
+        },
+        "documents": {
+          "type": "object",
+          "description": "Phase 2 uploaded files, Gemini AI document book-in listing, missing items, and screening summary."
+        },
+        "assignment": {
+          "type": "object",
+          "description": "Phase 3 PIC and Reviewer assignments, target dates, and structured review queries log."
+        },
+        "billing": {
+          "type": "object",
+          "description": "Phase 4 work done summary, fee breakdown (RM), draft dispatch, signed copy tracking, and payment collection."
+        },
+        "submission": {
+          "type": "object",
+          "description": "Phase 4 LHDN MyTax/e-Filing submission date, acknowledgement receipt number, tax position, and completion timestamp."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "ownerUid",
+        "fileRef",
+        "clientName",
+        "icOrPassport",
+        "tinNumber",
+        "email",
+        "phone",
+        "formType",
+        "yearOfAssessment",
+        "status",
+        "portalToken",
+        "bookIn",
+        "documents",
+        "assignment",
+        "billing",
+        "submission",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Trusted administrator membership marker for TJW Group Tax Department staff.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "role", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/taxJobs/{jobId}": {
+      "schema": {
+        "$ref": "#/entities/TaxJob"
+      },
+      "description": "Master Malaysian Individual Tax engagement jobs for TJW Group Tax Department."
+    },
+    "/admins/{userId}": {
+      "schema": {
+        "$ref": "#/entities/AdminRecord"
+      },
+      "description": "Trusted admin allowlist records."
+    }
+  }
+}
