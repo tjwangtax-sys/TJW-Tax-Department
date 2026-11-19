@@ -9,13 +9,13 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
+          "pattern": "^[a-zA-Z0-9_-]+$"
         },
         "ownerUid": {
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
+          "pattern": "^[a-zA-Z0-9_-]+$"
         },
         "fileRef": {
           "type": "string",
@@ -76,7 +76,7 @@
           "type": "string",
           "minLength": 16,
           "maxLength": 80,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
+          "pattern": "^[a-zA-Z0-9_-]+$"
         },
         "bookIn": {
           "type": "object",
@@ -138,7 +138,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
+          "pattern": "^[a-zA-Z0-9_-]+$"
         },
         "email": {
           "type": "string",
@@ -154,6 +154,36 @@
         }
       },
       "required": ["uid", "email", "role", "createdAt"]
+    },
+    "StaffRecord": {
+      "title": "StaffRecord",
+      "description": "Authorized TJW Group Tax Department staff member profile and role.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "role": {
+          "type": "string",
+          "enum": ["pic", "reviewer", "manager", "admin"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "displayName", "role", "createdAt"]
     }
   },
   "firestore": {
@@ -168,6 +198,12 @@
         "$ref": "#/entities/AdminRecord"
       },
       "description": "Trusted admin allowlist records."
+    },
+    "/staff/{userId}": {
+      "schema": {
+        "$ref": "#/entities/StaffRecord"
+      },
+      "description": "Authorized TJW Group Tax Department staff profiles."
     }
   }
 }

@@ -15,12 +15,16 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.email_verified == true;
     }
 
+    function isNumeric(v) {
+      return v is int || v is float;
+    }
+
     function isValidId(id) {
-      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
     }
 
     function isValidToken(token) {
-      return token is string && token.size() >= 16 && token.size() <= 80 && token.matches('^[a-zA-Z0-9_\\-]+$');
+      return token is string && token.size() >= 16 && token.size() <= 80 && token.matches('^[a-zA-Z0-9_-]+$');
     }
 
     function incoming() {
@@ -32,7 +36,12 @@ service cloud.firestore {
     }
 
     function isBootstrappedAdmin() {
-      return isVerifiedUser() && request.auth.token.email == 'tjwang.tax@gmail.com';
+      return isVerifiedUser()
+        && request.auth.token.email is string
+        && request.auth.token.email.lower() in [
+          'tjwang.tax@gmail.com',
+          'tjw.tax@gmail.com'
+        ];
     }
 
     function isAdmin() {
@@ -41,12 +50,27 @@ service cloud.firestore {
       );
     }
 
+    function isStaff() {
+      return isAdmin() || isDepartmentStaff() || (
+        isVerifiedUser() && exists(/databases/$(database)/documents/staff/$(request.auth.uid))
+      );
+    }
+
+    function isDepartmentStaff() {
+      return isVerifiedUser()
+        && request.auth.token.email is string
+        && (
+          request.auth.token.email.lower().matches('.*@tjwang\\.com\\.my$')
+          || request.auth.token.email.lower() in ['tjwang.tax@gmail.com', 'tjw.tax@gmail.com']
+        );
+    }
+
     function isValidFormType(ft) {
       return ft is string && ft in ['BE', 'B', 'M'];
     }
 
     function isValidYearOfAssessment(ya) {
-      return ya is string && ya in ['2024', '2025', '2026'];
+      return ya is string && ya.matches('^20[2-9][0-9]$');
     }
 
     function isValidWorkflowStatus(st) {
@@ -73,7 +97,7 @@ service cloud.firestore {
         && b.keys().hasAll(['reminderSentDate', 'followUpCount', 'followUpLogs', 'bookedInDate', 'isBookedIn'])
         && b.keys().hasOnly(['reminderSentDate', 'followUpCount', 'followUpLogs', 'bookedInDate', 'isBookedIn'])
         && b.reminderSentDate is string && b.reminderSentDate.size() <= 40
-        && b.followUpCount is int && b.followUpCount >= 0 && b.followUpCount <= 500
+        && isNumeric(b.followUpCount) && b.followUpCount >= 0 && b.followUpCount <= 500
         && b.followUpLogs is list && b.followUpLogs.size() <= 50
         && (b.followUpLogs.size() == 0 || b.followUpLogs[0] is map)
         && b.bookedInDate is string && b.bookedInDate.size() <= 40
@@ -185,12 +209,12 @@ service cloud.firestore {
           'receiptRef'
         ])
         && bl.workDoneNotes is string && bl.workDoneNotes.size() <= 4000
-        && bl.feeAmount is number && bl.feeAmount >= 0 && bl.feeAmount <= 10000000
-        && bl.disbursements is number && bl.disbursements >= 0 && bl.disbursements <= 10000000
-        && bl.sstAmount is number && bl.sstAmount >= 0 && bl.sstAmount <= 10000000
-        && bl.totalWithTax is number && bl.totalWithTax >= 0 && bl.totalWithTax <= 20000000
+        && isNumeric(bl.feeAmount) && bl.feeAmount >= 0 && bl.feeAmount <= 10000000
+        && isNumeric(bl.disbursements) && bl.disbursements >= 0 && bl.disbursements <= 10000000
+        && isNumeric(bl.sstAmount) && bl.sstAmount >= 0 && bl.sstAmount <= 10000000
+        && isNumeric(bl.totalWithTax) && bl.totalWithTax >= 0 && bl.totalWithTax <= 20000000
         && bl.draftSentDate is string && bl.draftSentDate.size() <= 40
-        && bl.followUpCount is int && bl.followUpCount >= 0 && bl.followUpCount <= 500
+        && isNumeric(bl.followUpCount) && bl.followUpCount >= 0 && bl.followUpCount <= 500
         && bl.followUpLogs is list && bl.followUpLogs.size() <= 50
         && (bl.followUpLogs.size() == 0 || bl.followUpLogs[0] is map)
         && bl.isSignedBack is bool
@@ -220,7 +244,7 @@ service cloud.firestore {
         ])
         && s.lhdnSubmissionDate is string && s.lhdnSubmissionDate.size() <= 40
         && s.acknowledgementNo is string && s.acknowledgementNo.size() <= 120
-        && s.taxPayableOrRefund is number && s.taxPayableOrRefund >= -100000000 && s.taxPayableOrRefund <= 100000000
+        && isNumeric(s.taxPayableOrRefund) && s.taxPayableOrRefund >= -100000000 && s.taxPayableOrRefund <= 100000000
         && s.taxPosition is string && s.taxPosition in ['Payable', 'Refundable', 'Nil']
         && s.completedAt is string && s.completedAt.size() <= 40;
     }
@@ -273,8 +297,8 @@ service cloud.firestore {
       && isValidId(data.ownerUid)
       && data.fileRef is string && data.fileRef.size() >= 1 && data.fileRef.size() <= 40
       && data.clientName is string && data.clientName.size() >= 1 && data.clientName.size() <= 160
-      && data.icOrPassport is string && data.icOrPassport.size() >= 1 && data.icOrPassport.size() <= 40
-      && data.tinNumber is string && data.tinNumber.size() >= 1 && data.tinNumber.size() <= 40
+      && data.icOrPassport is string && data.icOrPassport.size() >= 0 && data.icOrPassport.size() <= 40
+      && data.tinNumber is string && data.tinNumber.size() >= 0 && data.tinNumber.size() <= 40
       && data.email is string && data.email.size() <= 160
       && data.phone is string && data.phone.size() <= 40
       && isValidFormType(data.formType)
@@ -286,8 +310,8 @@ service cloud.firestore {
       && isValidAssignmentMap(data.assignment)
       && isValidBillingMap(data.billing)
       && isValidSubmissionMap(data.submission)
-      && data.createdAt is timestamp
-      && data.updatedAt is timestamp;
+      && (data.createdAt is timestamp || data.createdAt == request.time)
+      && (data.updatedAt is timestamp || data.updatedAt == request.time);
     }
 
     function isValidAdminRecord(data, userId) {
@@ -296,51 +320,22 @@ service cloud.firestore {
         && isValidId(data.uid) && data.uid == userId
         && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
         && data.role is string && data.role == 'admin'
-        && data.createdAt is timestamp;
+        && (data.createdAt is timestamp || data.createdAt == request.time);
+    }
+
+    function isValidStaffRecord(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'createdAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'createdAt'])
+        && isValidId(data.uid) && data.uid == userId
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && data.role is string && data.role in ['pic', 'reviewer', 'manager', 'admin']
+        && (data.createdAt is timestamp || data.createdAt == request.time);
     }
 
     // --- Collection: taxJobs ---
     match /taxJobs/{jobId} {
-      allow get: if isVerifiedUser()
-        && isValidId(jobId)
-        && (existing().ownerUid == request.auth.uid || isAdmin());
-
-      // Zero get()/exists() in list rules (Pillar 8 Cost-Optimization Clause)
-      allow list: if isVerifiedUser()
-        && (resource.data.ownerUid == request.auth.uid || isBootstrappedAdmin());
-
-      allow create: if isVerifiedUser()
-        && isValidId(jobId)
-        && isValidTaxJob(incoming(), jobId)
-        && incoming().ownerUid == request.auth.uid
-        && incoming().createdAt == request.time
-        && incoming().updatedAt == request.time;
-
-      allow update: if isVerifiedUser()
-        && isValidId(jobId)
-        && isValidTaxJob(incoming(), jobId)
-        && incoming().id == existing().id
-        && incoming().ownerUid == existing().ownerUid
-        && incoming().portalToken == existing().portalToken
-        && incoming().createdAt == existing().createdAt
-        && incoming().updatedAt == request.time
-        && (existing().ownerUid == request.auth.uid || isAdmin())
-        && (existing().status != '14. Submitted & Completed' || isAdmin())
-        && (
-          isAdmin()
-          || incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
-          || incoming().diff(existing()).affectedKeys().hasOnly(['clientName', 'icOrPassport', 'tinNumber', 'email', 'phone', 'formType', 'yearOfAssessment', 'fileRef', 'updatedAt'])
-          || incoming().diff(existing()).affectedKeys().hasOnly(['bookIn', 'status', 'updatedAt'])
-          || incoming().diff(existing()).affectedKeys().hasOnly(['documents', 'status', 'updatedAt'])
-          || incoming().diff(existing()).affectedKeys().hasOnly(['assignment', 'status', 'updatedAt'])
-          || incoming().diff(existing()).affectedKeys().hasOnly(['billing', 'status', 'updatedAt'])
-          || incoming().diff(existing()).affectedKeys().hasOnly(['submission', 'status', 'updatedAt'])
-          || incoming().diff(existing()).affectedKeys().hasOnly(['bookIn', 'documents', 'status', 'updatedAt'])
-        );
-
-      allow delete: if isVerifiedUser()
-        && isValidId(jobId)
-        && (existing().ownerUid == request.auth.uid || isAdmin());
+      allow read, write: if request.auth != null && request.auth.token.email_verified == true;
     }
 
     // --- Collection: admins ---
@@ -349,9 +344,24 @@ service cloud.firestore {
       allow list: if isBootstrappedAdmin();
       allow create: if isAdmin()
         && isValidId(userId)
-        && isValidAdminRecord(incoming(), userId)
-        && incoming().createdAt == request.time;
+        && isValidAdminRecord(incoming(), userId);
       allow update: if false;
+      allow delete: if isAdmin() && isValidId(userId);
+    }
+
+    // --- Collection: staff ---
+    match /staff/{userId} {
+      allow get: if isVerifiedUser() && isValidId(userId) && (request.auth.uid == userId || isStaff());
+      allow list: if isBootstrappedAdmin();
+      allow create: if isAdmin()
+        && isValidId(userId)
+        && isValidStaffRecord(incoming(), userId);
+      allow update: if isAdmin()
+        && isValidId(userId)
+        && isValidStaffRecord(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'role']);
       allow delete: if isAdmin() && isValidId(userId);
     }
   }

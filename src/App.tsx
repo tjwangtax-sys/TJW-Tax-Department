@@ -10,11 +10,13 @@ import {
   FileSpreadsheet,
   FileText,
   RefreshCw,
+  Database,
 } from 'lucide-react';
 import { auth } from './lib/firebase';
 import {
   createTaxJob,
   seedInitialTaxJobsIfEmpty,
+  seedSampleTaxJobs,
   subscribeTaxJobs,
   syncPortalsWithServer,
 } from './lib/taxJobService';
@@ -43,6 +45,7 @@ import { NewJobModal } from './components/NewJobModal';
 import { BulkReminderModal } from './components/BulkReminderModal';
 import { JobDetailDrawer } from './components/JobDetailDrawer';
 import { ClientPortalView } from './components/ClientPortalView';
+import { TeamAccessModal } from './components/TeamAccessModal';
 
 function parsePortalTokenFromPath(pathname: string): string | null {
   const match = pathname.match(/^\/client-portal\/([a-zA-Z0-9_\-]+)\/?$/);
@@ -85,7 +88,9 @@ function TaxAppContent() {
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [showNewJobModal, setShowNewJobModal] = useState(false);
   const [showBulkReminderModal, setShowBulkReminderModal] = useState(false);
+  const [showTeamModal, setShowTeamModal] = useState(false);
   const [syncingPortals, setSyncingPortals] = useState(false);
+  const [seedingSamples, setSeedingSamples] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   const notify = (msg: string) => {
@@ -139,25 +144,24 @@ function TaxAppContent() {
       setFirestoreError(null);
       try {
         await seedInitialTaxJobsIfEmpty(user.uid, user.email);
-        if (cancelled) return;
-        unsub = subscribeTaxJobs(
-          user.uid,
-          user.email,
-          (incomingJobs) => {
-            setJobs(incomingJobs);
-            setLoadingJobs(false);
-          },
-          (err) => {
-            setFirestoreError(err.message);
-            setLoadingJobs(false);
-          }
-        );
       } catch (err: unknown) {
         if (!cancelled) {
-          setFirestoreError(err instanceof Error ? err.message : 'Unable to connect to Firestore.');
-          setLoadingJobs(false);
+          setFirestoreError(err instanceof Error ? err.message : 'Unable to seed initial tax jobs.');
         }
       }
+      if (cancelled) return;
+      unsub = subscribeTaxJobs(
+        user.uid,
+        user.email,
+        (incomingJobs) => {
+          setJobs(incomingJobs);
+          setLoadingJobs(false);
+        },
+        (err) => {
+          setFirestoreError(err.message);
+          setLoadingJobs(false);
+        }
+      );
     };
 
     void init();
@@ -206,6 +210,20 @@ function TaxAppContent() {
       );
     } finally {
       setSyncingPortals(false);
+    }
+  };
+
+  const handleSeedSampleJobs = async () => {
+    if (!user) return;
+    setSeedingSamples(true);
+    setFirestoreError(null);
+    try {
+      const count = await seedSampleTaxJobs(user.uid, jobs);
+      notify(`Seeded ${count} sample Malaysian individual tax jobs (Form BE, Form B, Form M).`);
+    } catch (err: unknown) {
+      setFirestoreError(err instanceof Error ? err.message : 'Unable to seed sample tax jobs.');
+    } finally {
+      setSeedingSamples(false);
     }
   };
 
@@ -380,6 +398,13 @@ function TaxAppContent() {
           </span>
           <button
             type="button"
+            onClick={() => setShowTeamModal(true)}
+            className="px-3 py-1.5 text-xs font-semibold bg-white/10 hover:bg-white/20 text-white border border-white/25 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+          >
+            <span>Team Access</span>
+          </button>
+          <button
+            type="button"
             onClick={() => setShowNewJobModal(true)}
             className="px-3.5 py-1.5 text-xs font-semibold bg-[#E5D3AF] text-[#1C1917] hover:bg-[#F5EFE1] transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
           >
@@ -419,12 +444,21 @@ function TaxAppContent() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {toastMsg && (
               <div className="px-3 py-1.5 bg-[#ECFDF5] border border-[#BBF7D0] text-xs font-medium text-[#166534]">
                 {toastMsg}
               </div>
             )}
+            <button
+              type="button"
+              disabled={seedingSamples}
+              onClick={handleSeedSampleJobs}
+              className="px-2.5 py-1.5 text-xs font-semibold border border-[#790D16] bg-white text-[#790D16] hover:bg-[#F5EFE1] disabled:opacity-50 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+            >
+              <Database className="w-3.5 h-3.5" />
+              <span>{seedingSamples ? 'Seeding...' : 'Seed Sample Jobs (BE/B/M)'}</span>
+            </button>
             <button
               type="button"
               disabled={syncingPortals}
@@ -694,6 +728,8 @@ function TaxAppContent() {
           onOpenJob={(job) => setActiveJobId(job.id)}
           onOpenClientPortal={navigateToClientPortal}
           onCreateFirstJob={() => setShowNewJobModal(true)}
+          onSeedSampleJobs={handleSeedSampleJobs}
+          seedingSamples={seedingSamples}
         />
       </main>
 
@@ -721,6 +757,10 @@ function TaxAppContent() {
             notify(`Logged bulk reminders for ${count} client engagement(s).`);
           }}
         />
+      )}
+
+      {showTeamModal && (
+        <TeamAccessModal onClose={() => setShowTeamModal(false)} onNotify={notify} />
       )}
 
       {activeJob && (

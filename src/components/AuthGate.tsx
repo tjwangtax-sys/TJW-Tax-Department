@@ -1,17 +1,51 @@
 import React, { useState } from 'react';
-import { signInWithPopup } from 'firebase/auth';
-import { Lock, ArrowRight, FileCheck2, ShieldCheck, Layers } from 'lucide-react';
+import { signInWithPopup, signOut } from 'firebase/auth';
+import { Lock, ArrowRight, FileCheck2, ShieldCheck, Layers, AlertCircle } from 'lucide-react';
 import { auth, googleProvider } from '../lib/firebase';
+import { ensureStaffUserRecord } from '../lib/staffService';
 
 export const AuthGate: React.FC = () => {
   const [signingIn, setSigningIn] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [accessDeniedEmail, setAccessDeniedEmail] = useState<string | null>(null);
 
   const handleGoogleSignIn = async () => {
     setSigningIn(true);
     setErrorMsg(null);
+    setAccessDeniedEmail(null);
     try {
-      await signInWithPopup(auth, googleProvider);
+      const cred = await signInWithPopup(auth, googleProvider);
+      const email = cred.user.email;
+      if (!email) {
+        await signOut(auth);
+        setErrorMsg('Google account did not provide a valid email address.');
+        return;
+      }
+
+      // Check / bootstrap staff record
+      try {
+        const staff = await ensureStaffUserRecord({
+          uid: cred.user.uid,
+          email,
+          displayName: cred.user.displayName,
+        });
+
+        if (!staff.active) {
+          await signOut(auth);
+          setAccessDeniedEmail(email);
+          setErrorMsg('Your staff account has been deactivated. Please contact TJW Group IT Administrator.');
+          return;
+        }
+      } catch (staffErr) {
+        // If not in staff and not @tjwang.com.my, restrict access
+        const emailLower = email.toLowerCase();
+        if (emailLower !== 'tjwang.tax@gmail.com' && !emailLower.endsWith('@tjwang.com.my')) {
+          await signOut(auth);
+          setAccessDeniedEmail(email);
+          setErrorMsg('Access Restricted: Only authorized TJW Group tax professionals can access this portal.');
+          return;
+        }
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unable to complete Google sign-in.';
       setErrorMsg(msg);
@@ -59,9 +93,9 @@ export const AuthGate: React.FC = () => {
                 <div className="flex items-start gap-3">
                   <FileCheck2 className="w-4 h-4 text-[#790D16] mt-0.5 shrink-0" />
                   <div>
-                    <div className="text-sm font-semibold text-[#1C1917]">AI Document Screening & Book-In Listing</div>
+                    <div className="text-sm font-semibold text-[#1C1917]">AI Document Screening &amp; Book-In Listing</div>
                     <div className="text-xs text-[#57534E]">
-                      Classifies EA Forms, bank statements, tenancy agreements, personal reliefs, and Zakat receipts into exportable Excel & PDF listings.
+                      Classifies EA Forms, bank statements, tenancy agreements, personal reliefs, and Zakat receipts into exportable Excel &amp; PDF listings.
                     </div>
                   </div>
                 </div>
@@ -93,8 +127,14 @@ export const AuthGate: React.FC = () => {
             </p>
 
             {errorMsg && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 text-xs text-red-800">
-                {errorMsg}
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 text-xs text-red-800 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red-700 mt-0.5 shrink-0" />
+                <div>
+                  <span className="font-semibold">Access Restricted:</span> {errorMsg}
+                  {accessDeniedEmail && (
+                    <div className="mt-1 font-mono text-[11px] text-red-700">Account: {accessDeniedEmail}</div>
+                  )}
+                </div>
               </div>
             )}
 

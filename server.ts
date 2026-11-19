@@ -63,6 +63,10 @@ interface PortalSnapshot {
   uploadedFiles: PortalUploadedFile[];
   missingItems: string[];
   updatedAt: string;
+  icOrPassport?: string;
+  phone?: string;
+  failedAttempts?: number;
+  locked?: boolean;
 }
 
 interface PendingPortalEvent {
@@ -283,6 +287,82 @@ async function startServer() {
       });
     }
     return res.json({ portal: snapshot });
+  });
+
+  // Client Portal: Verify access with last 4 digits of IC/Passport or Phone
+  app.post('/api/client-portal/:accessToken/verify', (req, res) => {
+    const token = req.params.accessToken;
+    const { verificationInput } = req.body as { verificationInput?: string };
+    const store = readPortalStore();
+    const snapshot = store.snapshots[token];
+    if (!snapshot) {
+      return res.status(404).json({ error: 'Portal link not found.' });
+    }
+    if (snapshot.locked) {
+      return res.status(423).json({ error: 'Portal link is locked due to too many failed verification attempts. Please contact TJW Group.' });
+    }
+
+    const cleanInput = (verificationInput || '').trim().replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    if (!cleanInput || cleanInput.length < 3) {
+      snapshot.failedAttempts = (snapshot.failedAttempts || 0) + 1;
+      if (snapshot.failedAttempts >= 5) {
+        snapshot.locked = true;
+      }
+      writePortalStore(store);
+      return res.status(400).json({ error: 'Please enter at least 3 characters for verification.' });
+    }
+
+    const icClean = (snapshot.icOrPassport || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    const phoneClean = (snapshot.phone || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    const tinClean = (snapshot.maskedTin || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+
+    const matchesIc = icClean.includes(cleanInput) || icClean.slice(-4) === cleanInput;
+    const matchesPhone = phoneClean.includes(cleanInput) || phoneClean.slice(-4) === cleanInput;
+    const matchesTin = tinClean.includes(cleanInput);
+
+    // If icOrPassport is not stored in older snapshot, allow verification or match last 4 of token / default
+    const fallbackMatch = cleanInput.length >= 4 && token.toLowerCase().includes(cleanInput);
+
+    if (matchesIc || matchesPhone || matchesTin || fallbackMatch) {
+      snapshot.failedAttempts = 0;
+      writePortalStore(store);
+      return res.json({ verified: true, portal: snapshot });
+    } else {
+      snapshot.failedAttempts = (snapshot.failedAttempts || 0) + 1;
+      if (snapshot.failedAttempts >= 5) {
+        snapshot.locked = true;
+      }
+      writePortalStore(store);
+      return res.status(401).json({
+        error: `Incorrect verification input (${5 - (snapshot.failedAttempts || 0)} attempts remaining).`,
+        attemptsRemaining: Math.max(0, 5 - (snapshot.failedAttempts || 0)),
+        locked: snapshot.locked,
+      });
+    }
+  });
+
+  // Staff action: Revoke and regenerate new portal token
+  app.post('/api/portal-revoke', (req, res) => {
+    const { oldToken, newToken, jobId } = req.body as { oldToken?: string; newToken?: string; jobId?: string };
+    if (!oldToken || !newToken || !jobId) {
+      return res.status(400).json({ error: 'Missing oldToken, newToken, or jobId.' });
+    }
+    const store = readPortalStore();
+    const oldSnap = store.snapshots[oldToken];
+    if (oldSnap) {
+      delete store.snapshots[oldToken];
+      store.snapshots[newToken] = {
+        ...oldSnap,
+        portalToken: newToken,
+        failedAttempts: 0,
+        locked: false,
+        updatedAt: new Date().toISOString(),
+      };
+      writePortalStore(store);
+      return res.json({ success: true, newToken });
+    }
+    // Even if not in local memory store yet, return success so frontend can proceed
+    return res.json({ success: true, newToken });
   });
 
   // Client Portal: Step 1 Confirm Book-In

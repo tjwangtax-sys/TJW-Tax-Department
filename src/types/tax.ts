@@ -203,6 +203,8 @@ export interface ClientPortalPayload {
   uploadedFiles: UploadedTaxFile[];
   missingItems: string[];
   updatedAt: string;
+  icOrPassport?: string;
+  phone?: string;
 }
 
 export type ColumnGroupKey =

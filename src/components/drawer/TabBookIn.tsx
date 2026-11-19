@@ -6,15 +6,17 @@ import {
   MessageSquare,
   CheckCircle2,
   Plus,
+  RefreshCw,
 } from 'lucide-react';
 import {
   buildPortalUrl,
   buildWhatsAppLink,
+  generatePortalToken,
   todayIsoDate,
   type CommunicationChannel,
   type TaxJob,
 } from '../../types/tax';
-import { updateJobBookIn } from '../../lib/taxJobService';
+import { updateJobBookIn, rotateJobPortalToken } from '../../lib/taxJobService';
 
 interface TabBookInProps {
   job: TaxJob;
@@ -27,9 +29,26 @@ export const TabBookIn: React.FC<TabBookInProps> = ({ job, staffName, onNotify }
   const [channel, setChannel] = useState<CommunicationChannel>('WhatsApp');
   const [logNote, setLogNote] = useState('');
   const [saving, setSaving] = useState(false);
+  const [revoking, setRevoking] = useState(false);
   const [copiedKey, setCopiedKey] = useState<'wa' | 'link' | null>(null);
 
   const portalUrl = buildPortalUrl(job.portalToken);
+
+  const handleRevokeLink = async () => {
+    if (!window.confirm('Are you sure you want to revoke this portal link? The existing link will immediately stop working and a new secure link will be generated.')) {
+      return;
+    }
+    setRevoking(true);
+    try {
+      const newToken = generatePortalToken(job.yearOfAssessment);
+      await rotateJobPortalToken(job.id, job.portalToken, newToken);
+      onNotify('Portal link successfully revoked and regenerated.');
+    } catch (err) {
+      onNotify('Failed to revoke portal link.');
+    } finally {
+      setRevoking(false);
+    }
+  };
 
   const whatsappMessage = `Dear ${job.clientName},
 
@@ -169,23 +188,35 @@ TJW Group Tax Department`;
           <h3 className="text-sm font-bold text-[#1C1917]">
             Client Document Upload Portal &amp; WhatsApp Outreach
           </h3>
-          <button
-            type="button"
-            onClick={() => copyText(portalUrl, 'link')}
-            className="px-2.5 py-1 text-xs font-medium border border-[#D6D3D1] hover:bg-[#FAF9F6] inline-flex items-center gap-1.5 cursor-pointer"
-          >
-            {copiedKey === 'link' ? (
-              <>
-                <Check className="w-3.5 h-3.5 text-[#166534]" />
-                Portal Link Copied
-              </>
-            ) : (
-              <>
-                <Copy className="w-3.5 h-3.5" />
-                Copy Portal URL
-              </>
-            )}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={revoking}
+              onClick={handleRevokeLink}
+              className="px-2.5 py-1 text-xs font-semibold border border-red-300 text-red-700 bg-red-50 hover:bg-red-100 inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              title="Revoke this link and generate a new secure URL if sent to wrong recipient"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${revoking ? 'animate-spin' : ''}`} />
+              <span>{revoking ? 'Revoking...' : 'Revoke & New Link'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => copyText(portalUrl, 'link')}
+              className="px-2.5 py-1 text-xs font-medium border border-[#D6D3D1] hover:bg-[#FAF9F6] inline-flex items-center gap-1.5 cursor-pointer"
+            >
+              {copiedKey === 'link' ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-[#166534]" />
+                  Portal Link Copied
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3.5 h-3.5" />
+                  Copy Portal URL
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
         <div className="px-3 py-2 bg-[#F5EFE1]/60 border border-[#E5D3AF] font-mono text-xs text-[#292524] break-all">

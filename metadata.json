@@ -2,5 +2,7 @@
   "name": "TJW Group Individual Tax Job Management System",
   "description": "Malaysian Individual Tax (Form BE, Form B, Form M) job lifecycle management, Gemini AI document screening, and tokenized client document book-in portal for TJW Group Tax Department.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

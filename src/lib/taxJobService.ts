@@ -12,7 +12,7 @@ import {
   writeBatch,
   type Unsubscribe,
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from './firebase';
+import { auth, db, handleFirestoreError, OperationType } from './firebase';
 import { buildSeedTaxJobs } from '../data/seedJobs';
 import {
   clampString,
@@ -32,8 +32,18 @@ import {
   type YearOfAssessment,
 } from '../types/tax';
 
-const BOOTSTRAPPED_ADMIN_EMAIL = 'tjwang.tax@gmail.com';
+const BOOTSTRAPPED_ADMIN_EMAILS = new Set([
+  'tjwang.tax@gmail.com',
+  'tjw.tax@gmail.com',
+]);
 const COLLECTION_NAME = 'taxJobs';
+
+export function isBootstrappedAdminEmail(email: string | null | undefined): boolean {
+  if (!email) return false;
+  return BOOTSTRAPPED_ADMIN_EMAILS.has(email.trim().toLowerCase());
+}
+
+let inFlightSeedPromise: Promise<number> | null = null;
 
 function sanitizeBookIn(b: BookInSection): BookInSection {
   return {
@@ -183,33 +193,81 @@ function sanitizeSubmission(s: SubmissionSection): SubmissionSection {
   };
 }
 
-export async function seedInitialTaxJobsIfEmpty(uid: string, email: string | null): Promise<void> {
-  const isBootstrappedAdmin = email === BOOTSTRAPPED_ADMIN_EMAIL;
-  const colRef = collection(db, COLLECTION_NAME);
-  const q = isBootstrappedAdmin ? query(colRef) : query(colRef, where('ownerUid', '==', uid));
+export async function seedInitialTaxJobsIfEmpty(uid: string, email: string | null): Promise<number> {
+  if (inFlightSeedPromise) {
+    return inFlightSeedPromise;
+  }
+
+  const run = async (): Promise<number> => {
+    const isAdmin = isBootstrappedAdminEmail(email);
+    const colRef = collection(db, COLLECTION_NAME);
+    const q = isAdmin ? query(colRef) : query(colRef, where('ownerUid', '==', uid));
+
+    let existingCount = 0;
+    try {
+      const snap = await getDocs(q);
+      existingCount = snap.size;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, COLLECTION_NAME);
+    }
+
+    if (existingCount > 0) return 0;
+
+    return seedSampleTaxJobs(uid, []);
+  };
+
+  inFlightSeedPromise = run().finally(() => {
+    inFlightSeedPromise = null;
+  });
+
+  return inFlightSeedPromise;
+}
+
+export async function seedSampleTaxJobs(
+  uid: string,
+  existingJobs: TaxJob[]
+): Promise<number> {
+  const currentUid = auth.currentUser?.uid || uid;
+  const existingRefs = new Set(existingJobs.map((j) => j.fileRef));
+  const rawSeeds = buildSeedTaxJobs(currentUid);
+  const toInsert = rawSeeds.filter((s) => !existingRefs.has(s.fileRef));
+  const targetSeeds = toInsert.length > 0 ? toInsert : rawSeeds;
+
+  const stamp = Date.now().toString(36);
+  const batch = writeBatch(db);
+  let inserted = 0;
+
+  for (let i = 0; i < targetSeeds.length; i++) {
+    const seed = targetSeeds[i];
+    const uniqueId = `job_seed_${stamp}_${String(i + 1).padStart(2, '0')}`;
+    const uniqueToken = generatePortalToken(seed.yearOfAssessment);
+    const ref = doc(db, COLLECTION_NAME, uniqueId);
+
+    batch.set(ref, {
+      ...seed,
+      id: uniqueId,
+      ownerUid: currentUid,
+      portalToken: uniqueToken,
+      fileRef:
+        toInsert.length > 0
+          ? seed.fileRef
+          : `${seed.fileRef}-${stamp.slice(-3).toUpperCase()}`,
+      bookIn: sanitizeBookIn(seed.bookIn),
+      documents: sanitizeDocuments(seed.documents),
+      assignment: sanitizeAssignment(seed.assignment),
+      billing: sanitizeBilling(seed.billing),
+      submission: sanitizeSubmission(seed.submission),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    inserted += 1;
+  }
 
   try {
-    const snap = await getDocs(q);
-    if (!snap.empty) return;
-
-    const seeds = buildSeedTaxJobs(uid);
-    const batch = writeBatch(db);
-    for (const seed of seeds) {
-      const ref = doc(db, COLLECTION_NAME, seed.id);
-      batch.set(ref, {
-        ...seed,
-        bookIn: sanitizeBookIn(seed.bookIn),
-        documents: sanitizeDocuments(seed.documents),
-        assignment: sanitizeAssignment(seed.assignment),
-        billing: sanitizeBilling(seed.billing),
-        submission: sanitizeSubmission(seed.submission),
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-    }
     await batch.commit();
+    return inserted;
   } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, COLLECTION_NAME);
+    handleFirestoreError(error, OperationType.CREATE, COLLECTION_NAME);
   }
 }
 
@@ -219,9 +277,9 @@ export function subscribeTaxJobs(
   onData: (jobs: TaxJob[]) => void,
   onError: (err: Error) => void
 ): Unsubscribe {
-  const isBootstrappedAdmin = email === BOOTSTRAPPED_ADMIN_EMAIL;
+  const isAdmin = isBootstrappedAdminEmail(email);
   const colRef = collection(db, COLLECTION_NAME);
-  const q = isBootstrappedAdmin ? query(colRef) : query(colRef, where('ownerUid', '==', uid));
+  const q = isAdmin ? query(colRef) : query(colRef, where('ownerUid', '==', uid));
 
   return onSnapshot(
     q,
@@ -257,6 +315,7 @@ export interface CreateTaxJobInput {
 }
 
 export async function createTaxJob(input: CreateTaxJobInput): Promise<string> {
+  const currentUid = auth.currentUser?.uid || input.ownerUid;
   const cleanId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const portalToken = generatePortalToken(input.yearOfAssessment);
   const today = todayIsoDate();
@@ -265,7 +324,7 @@ export async function createTaxJob(input: CreateTaxJobInput): Promise<string> {
 
   const payload: Omit<TaxJob, 'createdAt' | 'updatedAt'> = {
     id: cleanId,
-    ownerUid: input.ownerUid,
+    ownerUid: currentUid,
     fileRef: clampString(input.fileRef, 40) || `TJW/IND/${input.yearOfAssessment}/${cleanId.slice(-4)}`,
     clientName: clampString(input.clientName, 160),
     icOrPassport: clampString(input.icOrPassport, 40),
@@ -504,6 +563,8 @@ export async function syncPortalsWithServer(jobs: TaxJob[]): Promise<number> {
     uploadedFiles: j.documents.uploadedFiles,
     missingItems: j.documents.missingItems,
     updatedAt: new Date().toISOString(),
+    icOrPassport: j.icOrPassport,
+    phone: j.phone,
   }));
 
   const resp = await fetch('/api/portal-sync', {
@@ -581,4 +642,21 @@ export async function syncPortalsWithServer(jobs: TaxJob[]): Promise<number> {
   }
 
   return ackIds.length;
+}
+
+export async function rotateJobPortalToken(jobId: string, oldToken: string, newToken: string): Promise<void> {
+  const docPath = `${COLLECTION_NAME}/${jobId}`;
+  try {
+    await updateDoc(doc(db, COLLECTION_NAME, jobId), {
+      portalToken: newToken,
+      updatedAt: serverTimestamp(),
+    });
+    await fetch('/api/portal-revoke', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ oldToken, newToken, jobId }),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, docPath);
+  }
 }

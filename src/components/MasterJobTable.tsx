@@ -27,6 +27,8 @@ interface MasterJobTableProps {
   onOpenJob: (job: TaxJob) => void;
   onOpenClientPortal: (token: string) => void;
   onCreateFirstJob: () => void;
+  onSeedSampleJobs: () => void;
+  seedingSamples: boolean;
 }
 
 function getStatusAccent(status: WorkflowStatus): { bg: string; text: string; border: string } {
@@ -57,6 +59,8 @@ export const MasterJobTable: React.FC<MasterJobTableProps> = ({
   onOpenJob,
   onOpenClientPortal,
   onCreateFirstJob,
+  onSeedSampleJobs,
+  seedingSamples,
 }) => {
   const allSelected = jobs.length > 0 && jobs.every((j) => selectedIds.has(j.id));
 
@@ -91,13 +95,23 @@ export const MasterJobTable: React.FC<MasterJobTableProps> = ({
         <p className="text-sm text-[#57534E] mb-5">
           Adjust your Year of Assessment, Form Type, PIC, or search query, or create a new Malaysian individual tax engagement.
         </p>
-        <button
-          type="button"
-          onClick={onCreateFirstJob}
-          className="px-4 py-2 text-xs font-semibold bg-[#790D16] text-white hover:bg-[#5E0A11] transition-colors cursor-pointer"
-        >
-          + New Tax Job
-        </button>
+        <div className="flex flex-wrap items-center justify-center gap-2.5">
+          <button
+            type="button"
+            onClick={onCreateFirstJob}
+            className="px-4 py-2 text-xs font-semibold bg-[#790D16] text-white hover:bg-[#5E0A11] transition-colors cursor-pointer"
+          >
+            + New Tax Job
+          </button>
+          <button
+            type="button"
+            disabled={seedingSamples}
+            onClick={onSeedSampleJobs}
+            className="px-4 py-2 text-xs font-semibold border border-[#790D16] text-[#790D16] bg-white hover:bg-[#F5EFE1] disabled:opacity-50 transition-colors cursor-pointer"
+          >
+            {seedingSamples ? 'Seeding Sample Jobs...' : 'Seed Sample Jobs (Form BE, B, M)'}
+          </button>
+        </div>
       </div>
     );
   }
