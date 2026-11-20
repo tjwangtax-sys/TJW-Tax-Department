@@ -16,10 +16,12 @@ import { collection, getDocs, writeBatch } from 'firebase/firestore';
 import {
   clearAllTaxJobs,
   createTaxJob,
+  isBootstrappedAdminEmail,
   rolloverTaxJobs,
   subscribeTaxJobs,
   syncPortalsWithServer,
 } from './lib/taxJobService';
+import { AuditLogModal } from './components/AuditLogModal';
 import {
   exportJobsToCsv,
   exportJobsToExcel,
@@ -95,10 +97,13 @@ function TaxAppContent() {
   const [showNewJobModal, setShowNewJobModal] = useState(false);
   const [showBulkReminderModal, setShowBulkReminderModal] = useState(false);
   const [showTeamModal, setShowTeamModal] = useState(false);
+  const [showAuditModal, setShowAuditModal] = useState(false);
   const [showRolloverModal, setShowRolloverModal] = useState(false);
   const [syncingPortals, setSyncingPortals] = useState(false);
   const [clearingTestData, setClearingTestData] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  const isAdminUser = isBootstrappedAdminEmail(user?.email);
 
   const notify = (msg: string) => {
     setToastMsg(msg);
@@ -465,6 +470,15 @@ function TaxAppContent() {
           >
             <span>Team Access</span>
           </button>
+          {isAdminUser && (
+            <button
+              type="button"
+              onClick={() => setShowAuditModal(true)}
+              className="px-3 py-1.5 text-xs font-semibold bg-white/10 hover:bg-white/20 text-[#E5D3AF] border border-[#E5D3AF]/40 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <span>Audit Log</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setShowNewJobModal(true)}
@@ -843,6 +857,10 @@ function TaxAppContent() {
 
       {showTeamModal && (
         <TeamAccessModal onClose={() => setShowTeamModal(false)} onNotify={notify} />
+      )}
+
+      {showAuditModal && (
+        <AuditLogModal onClose={() => setShowAuditModal(false)} onNotify={notify} />
       )}
 
       {showRolloverModal && selectedJobs.length > 0 && (

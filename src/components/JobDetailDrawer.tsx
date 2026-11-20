@@ -95,7 +95,7 @@ export const JobDetailDrawer: React.FC<JobDetailDrawerProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex justify-end bg-black/35">
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
       <div
         className="fixed inset-0"
         aria-hidden="true"
@@ -106,7 +106,7 @@ export const JobDetailDrawer: React.FC<JobDetailDrawerProps> = ({
         role="dialog"
         aria-modal="true"
         aria-label={`Tax job details for ${job.clientName}`}
-        className="relative z-10 w-full max-w-4xl bg-[#F8F7F4] border-l border-[#D6D3D1] shadow-2xl h-full flex flex-col"
+        className="relative z-10 w-[94vw] max-w-6xl h-[92vh] bg-[#F8F7F4] border border-[#D6D3D1] shadow-2xl flex flex-col overflow-hidden"
       >
         {/* Sticky Drawer Header */}
         <div className="bg-[#790D16] text-white px-6 py-4 shrink-0">

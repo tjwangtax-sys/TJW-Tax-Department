@@ -34,38 +34,34 @@ export async function ensureStaffUserRecord(user: {
 
   const emailLower = user.email.trim().toLowerCase();
   const isBootstrap = emailLower === BOOTSTRAPPED_ADMIN || emailLower.endsWith('@tjwang.com.my');
-  const defaultRole: StaffRole = isBootstrap ? 'Admin' : 'PIC';
 
   const ref = doc(db, COLLECTION_NAME, user.uid);
   const snap = await getDoc(ref);
 
   if (snap.exists()) {
     const data = snap.data() as StaffUser;
-    // If bootstrap admin, ensure active and Admin role
     if (isBootstrap && (data.role !== 'Admin' || !data.active)) {
-      const updated: StaffUser = {
-        ...data,
-        role: 'Admin',
-        active: true,
-      };
       await updateDoc(ref, { role: 'Admin', active: true });
-      return updated;
+      return { ...data, role: 'Admin', active: true };
     }
     return data;
   }
 
-  // Create new staff record
-  const newStaff: StaffUser = {
-    uid: user.uid,
-    email: emailLower,
-    name: user.displayName || user.email.split('@')[0] || 'Staff Member',
-    role: defaultRole,
-    active: isBootstrap ? true : true, // default active
-    createdAt: serverTimestamp(),
-  };
+  // If bootstrap admin, auto-bootstrap record
+  if (isBootstrap) {
+    const newStaff: StaffUser = {
+      uid: user.uid,
+      email: emailLower,
+      name: user.displayName || emailLower.split('@')[0] || 'System Admin',
+      role: 'Admin',
+      active: true,
+      createdAt: serverTimestamp(),
+    };
+    await setDoc(ref, newStaff);
+    return newStaff;
+  }
 
-  await setDoc(ref, newStaff);
-  return newStaff;
+  throw new Error('Access Restricted: Your account is not registered in the TJW staff directory. Please contact your System Administrator to provision your staff access.');
 }
 
 export async function fetchStaffUsers(): Promise<StaffUser[]> {
