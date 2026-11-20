@@ -22,7 +22,6 @@ export const AuthGate: React.FC = () => {
         return;
       }
 
-      // Check / bootstrap staff record keyed by email
       try {
         const staff = await ensureStaffUserRecord({
           uid: cred.user.uid,
@@ -42,7 +41,7 @@ export const AuthGate: React.FC = () => {
         const msg =
           staffErr instanceof Error
             ? staffErr.message
-            : 'Access Restricted: Only authorized TJW Group tax professionals can access this portal.';
+            : 'Access Restricted — Your email is not registered in TJW Tax Department Team Access.';
         setErrorMsg(msg);
         return;
       }

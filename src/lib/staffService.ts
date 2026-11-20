@@ -5,6 +5,8 @@ import {
   getDocs,
   setDoc,
   updateDoc,
+  query,
+  where,
   serverTimestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
@@ -21,7 +23,7 @@ export interface StaffUser {
 }
 
 const COLLECTION_NAME = 'staffUsers';
-const BOOTSTRAPPED_ADMIN = 'tjwang.tax@gmail.com';
+const PRIMARY_ADMINS = new Set(['tjwang.tax@gmail.com', 'tjw.tax@gmail.com']);
 
 export async function ensureStaffUserRecord(user: {
   uid: string;
@@ -29,50 +31,107 @@ export async function ensureStaffUserRecord(user: {
   displayName: string | null;
 }): Promise<StaffUser> {
   if (!user.email) {
-    throw new Error('User email is required for staff verification.');
+    throw new Error('Google account did not provide a valid email address.');
   }
 
   const emailLower = user.email.trim().toLowerCase();
-  const isBootstrap = emailLower === BOOTSTRAPPED_ADMIN || emailLower.endsWith('@tjwang.com.my');
+  const isPrimaryAdmin = PRIMARY_ADMINS.has(emailLower);
 
   const ref = doc(db, COLLECTION_NAME, emailLower);
-  const snap = await getDoc(ref);
 
-  if (snap.exists()) {
-    const data = snap.data() as StaffUser;
-    if (data.active === false) {
-      throw new Error('Your staff account has been deactivated. Please contact TJW Group IT Administrator.');
-    }
-    const updates: Record<string, unknown> = {};
-    if (data.uid !== user.uid) {
-      updates.uid = user.uid;
-    }
-    if (isBootstrap && (data.role !== 'Admin' || !data.active)) {
-      updates.role = 'Admin';
-      updates.active = true;
-    }
-    if (Object.keys(updates).length > 0) {
-      await updateDoc(ref, updates);
+  try {
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      const data = snap.data() as StaffUser;
+      if (data.active === false) {
+        throw new Error('Your staff account has been deactivated. Please contact TJW Group IT Administrator.');
+      }
+      const updates: Record<string, unknown> = {};
+      if (data.uid !== user.uid) {
+        updates.uid = user.uid;
+      }
+      if (isPrimaryAdmin && (data.role !== 'Admin' || !data.active)) {
+        updates.role = 'Admin';
+        updates.active = true;
+      }
+      if (Object.keys(updates).length > 0) {
+        await updateDoc(ref, updates).catch(() => {});
+      }
       return { ...data, ...updates };
     }
-    return data;
+  } catch (err) {
+    if (isPrimaryAdmin) {
+      const adminRecord: StaffUser = {
+        uid: user.uid,
+        email: emailLower,
+        name: user.displayName || 'System Admin',
+        role: 'Admin',
+        active: true,
+        createdAt: serverTimestamp(),
+      };
+      await setDoc(ref, adminRecord, { merge: true }).catch(() => {});
+      return adminRecord;
+    }
+    // If not primary admin and error occurred during get, throw the error message
+    throw err;
   }
 
-  // If bootstrap admin or @tjwang.com.my, auto-bootstrap record keyed by email
-  if (isBootstrap) {
-    const newStaff: StaffUser = {
+  // Fallback query by email or uid
+  try {
+    const qEmail = query(collection(db, COLLECTION_NAME), where('email', '==', emailLower));
+    const qEmailSnap = await getDocs(qEmail);
+    if (!qEmailSnap.empty) {
+      const docMatch = qEmailSnap.docs[0];
+      const data = docMatch.data() as StaffUser;
+      if (data.active === false) {
+        throw new Error('Your staff account has been deactivated. Please contact TJW Group IT Administrator.');
+      }
+      if (data.uid !== user.uid) {
+        await updateDoc(docMatch.ref, { uid: user.uid }).catch(() => {});
+      }
+      return { ...data, uid: user.uid };
+    }
+
+    const qUid = query(collection(db, COLLECTION_NAME), where('uid', '==', user.uid));
+    const qUidSnap = await getDocs(qUid);
+    if (!qUidSnap.empty) {
+      const docMatch = qUidSnap.docs[0];
+      const data = docMatch.data() as StaffUser;
+      if (data.active === false) {
+        throw new Error('Your staff account has been deactivated. Please contact TJW Group IT Administrator.');
+      }
+      return data;
+    }
+  } catch (err) {
+    if (isPrimaryAdmin) {
+      const adminRecord: StaffUser = {
+        uid: user.uid,
+        email: emailLower,
+        name: user.displayName || 'System Admin',
+        role: 'Admin',
+        active: true,
+        createdAt: serverTimestamp(),
+      };
+      await setDoc(ref, adminRecord, { merge: true }).catch(() => {});
+      return adminRecord;
+    }
+    throw err;
+  }
+
+  if (isPrimaryAdmin) {
+    const adminRecord: StaffUser = {
       uid: user.uid,
       email: emailLower,
-      name: user.displayName || emailLower.split('@')[0] || 'System Admin',
+      name: user.displayName || 'System Admin',
       role: 'Admin',
       active: true,
       createdAt: serverTimestamp(),
     };
-    await setDoc(ref, newStaff);
-    return newStaff;
+    await setDoc(ref, adminRecord, { merge: true }).catch(() => {});
+    return adminRecord;
   }
 
-  throw new Error('Access Restricted: Your email is not registered in the TJW staff directory. Please contact your System Administrator to provision your staff access.');
+  throw new Error('Access Restricted — Your email is not registered in TJW Tax Department Team Access.');
 }
 
 export async function fetchStaffUsers(): Promise<StaffUser[]> {

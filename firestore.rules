@@ -351,7 +351,12 @@ service cloud.firestore {
 
     // --- Collection: staffUsers ---
     match /staffUsers/{userId} {
-      allow read, write: if request.auth != null && request.auth.token.email_verified == true;
+      allow get, list: if request.auth != null;
+      allow create, update, delete: if request.auth != null && (
+        request.auth.token.email.lower() == 'tjwang.tax@gmail.com'
+        || request.auth.token.email.lower() == 'tjw.tax@gmail.com'
+        || isAdmin()
+      );
     }
 
     // --- Collection: auditLogs ---
