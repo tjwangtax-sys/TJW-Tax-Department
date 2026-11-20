@@ -194,14 +194,13 @@ function sanitizeSubmission(s: SubmissionSection): SubmissionSection {
 
 
 export function subscribeTaxJobs(
-  uid: string,
-  email: string | null,
+  _uid: string,
+  _email: string | null,
   onData: (jobs: TaxJob[]) => void,
   onError: (err: Error) => void
 ): Unsubscribe {
-  const isAdmin = isBootstrappedAdminEmail(email);
   const colRef = collection(db, COLLECTION_NAME);
-  const q = isAdmin ? query(colRef) : query(colRef, where('ownerUid', '==', uid));
+  const q = query(colRef);
 
   return onSnapshot(
     q,
