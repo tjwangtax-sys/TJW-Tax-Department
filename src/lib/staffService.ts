@@ -40,6 +40,9 @@ export async function ensureStaffUserRecord(user: {
 
   if (snap.exists()) {
     const data = snap.data() as StaffUser;
+    if (data.active === false) {
+      throw new Error('Your staff account has been deactivated. Please contact TJW Group IT Administrator.');
+    }
     const updates: Record<string, unknown> = {};
     if (data.uid !== user.uid) {
       updates.uid = user.uid;
@@ -55,7 +58,7 @@ export async function ensureStaffUserRecord(user: {
     return data;
   }
 
-  // If bootstrap admin, auto-bootstrap record keyed by email
+  // If bootstrap admin or @tjwang.com.my, auto-bootstrap record keyed by email
   if (isBootstrap) {
     const newStaff: StaffUser = {
       uid: user.uid,
@@ -69,7 +72,7 @@ export async function ensureStaffUserRecord(user: {
     return newStaff;
   }
 
-  throw new Error('Access Restricted: Your account is not registered in the TJW staff directory. Please contact your System Administrator to provision your staff access.');
+  throw new Error('Access Restricted: Your email is not registered in the TJW staff directory. Please contact your System Administrator to provision your staff access.');
 }
 
 export async function fetchStaffUsers(): Promise<StaffUser[]> {

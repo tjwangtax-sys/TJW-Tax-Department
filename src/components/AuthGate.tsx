@@ -22,7 +22,7 @@ export const AuthGate: React.FC = () => {
         return;
       }
 
-      // Check / bootstrap staff record
+      // Check / bootstrap staff record keyed by email
       try {
         const staff = await ensureStaffUserRecord({
           uid: cred.user.uid,
@@ -37,14 +37,14 @@ export const AuthGate: React.FC = () => {
           return;
         }
       } catch (staffErr) {
-        // If not in staff and not @tjwang.com.my, restrict access
-        const emailLower = email.toLowerCase();
-        if (emailLower !== 'tjwang.tax@gmail.com' && !emailLower.endsWith('@tjwang.com.my')) {
-          await signOut(auth);
-          setAccessDeniedEmail(email);
-          setErrorMsg('Access Restricted: Only authorized TJW Group tax professionals can access this portal.');
-          return;
-        }
+        await signOut(auth);
+        setAccessDeniedEmail(email);
+        const msg =
+          staffErr instanceof Error
+            ? staffErr.message
+            : 'Access Restricted: Only authorized TJW Group tax professionals can access this portal.';
+        setErrorMsg(msg);
+        return;
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unable to complete Google sign-in.';
@@ -147,10 +147,6 @@ export const AuthGate: React.FC = () => {
               <span>{signingIn ? 'Authenticating...' : 'Sign in with Google'}</span>
               {!signingIn && <ArrowRight className="w-4 h-4" />}
             </button>
-
-            <p className="mt-6 text-xs text-[#78716C] leading-relaxed">
-              Protected by verified Google Authentication and Firestore security rules. Client document uploads remain accessible externally via individual tokenized book-in links.
-            </p>
           </div>
         </div>
       </main>
