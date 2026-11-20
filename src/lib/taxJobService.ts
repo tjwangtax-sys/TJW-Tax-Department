@@ -691,18 +691,5 @@ export async function rolloverTaxJobs(
   }
 }
 
-export async function clearAllTaxJobs(): Promise<number> {
-  try {
-    const snap = await getDocs(collection(db, COLLECTION_NAME));
-    if (snap.empty) return 0;
-    const batch = writeBatch(db);
-    snap.docs.forEach((d) => {
-      batch.delete(d.ref);
-    });
-    await batch.commit();
-    return snap.docs.length;
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, COLLECTION_NAME);
-  }
-}
+
 

@@ -12,9 +12,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { auth, db } from './lib/firebase';
-import { collection, getDocs, writeBatch } from 'firebase/firestore';
 import {
-  clearAllTaxJobs,
   createTaxJob,
   isBootstrappedAdminEmail,
   rolloverTaxJobs,
@@ -100,7 +98,6 @@ function TaxAppContent() {
   const [showAuditModal, setShowAuditModal] = useState(false);
   const [showRolloverModal, setShowRolloverModal] = useState(false);
   const [syncingPortals, setSyncingPortals] = useState(false);
-  const [clearingTestData, setClearingTestData] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   const isAdminUser = isBootstrappedAdminEmail(user?.email);
@@ -251,21 +248,7 @@ function TaxAppContent() {
 
 
 
-  const handleClearAllTestData = async () => {
-    if (!window.confirm('Are you sure you want to delete ALL existing tax jobs from Firestore? This will reset the app to an empty live state.')) {
-      return;
-    }
-    setClearingTestData(true);
-    setFirestoreError(null);
-    try {
-      const count = await clearAllTaxJobs();
-      notify(`Successfully cleared ${count} tax job record(s) from Firestore.`);
-    } catch (err: unknown) {
-      setFirestoreError(err instanceof Error ? err.message : 'Failed to clear test data.');
-    } finally {
-      setClearingTestData(false);
-    }
-  };
+
 
   const availablePics = useMemo(() => {
     const s = new Set<string>();
@@ -527,14 +510,7 @@ function TaxAppContent() {
               </div>
             )}
 
-            <button
-              type="button"
-              disabled={clearingTestData}
-              onClick={handleClearAllTestData}
-              className="px-2.5 py-1.5 text-xs font-semibold border border-red-300 bg-white text-red-700 hover:bg-red-50 disabled:opacity-50 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
-            >
-              <span>{clearingTestData ? 'Clearing...' : 'Clear Test Data'}</span>
-            </button>
+
             <button
               type="button"
               disabled={syncingPortals}

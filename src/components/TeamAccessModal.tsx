@@ -1,7 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { X, Shield, UserCheck, UserX, Plus } from 'lucide-react';
-import { collection, getDocs, writeBatch } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { fetchStaffUsers, upsertStaffUser, setStaffActiveStatus, setStaffRole, type StaffUser, type StaffRole } from '../lib/staffService';
 
 interface TeamAccessModalProps {
@@ -17,7 +15,6 @@ export const TeamAccessModal: React.FC<TeamAccessModalProps> = ({ onClose, onNot
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState<StaffRole>('PIC');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [clearingJobs, setClearingJobs] = useState(false);
 
   const loadStaff = async () => {
     setLoading(true);
@@ -77,24 +74,7 @@ export const TeamAccessModal: React.FC<TeamAccessModalProps> = ({ onClose, onNot
     }
   };
 
-  const handleClearAllJobs = async () => {
-    if (!window.confirm('Are you sure you want to delete ALL tax jobs from Firestore? This action cannot be undone.')) {
-      return;
-    }
-    setClearingJobs(true);
-    setErrorMsg(null);
-    try {
-      const snap = await getDocs(collection(db, 'taxJobs'));
-      const batch = writeBatch(db);
-      snap.docs.forEach((d) => batch.delete(d.ref));
-      await batch.commit();
-      onNotify('Cleared all tax jobs from Firestore successfully.');
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Failed to clear tax jobs.');
-    } finally {
-      setClearingJobs(false);
-    }
-  };
+
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
@@ -249,15 +229,7 @@ export const TeamAccessModal: React.FC<TeamAccessModalProps> = ({ onClose, onNot
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3 bg-[#FAF9F6] border-t border-[#E5E7EB] flex items-center justify-between shrink-0">
-          <button
-            type="button"
-            disabled={clearingJobs}
-            onClick={() => void handleClearAllJobs()}
-            className="px-3 py-1.5 bg-red-700 text-white text-xs font-semibold hover:bg-red-800 disabled:opacity-50 cursor-pointer"
-          >
-            {clearingJobs ? 'Clearing...' : 'Clear All Test Data'}
-          </button>
+        <div className="px-6 py-3 bg-[#FAF9F6] border-t border-[#E5E7EB] flex items-center justify-end shrink-0">
           <button
             type="button"
             onClick={onClose}
