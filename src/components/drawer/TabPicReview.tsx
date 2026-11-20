@@ -1,8 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { CheckCircle2, Plus, Send, ShieldCheck } from 'lucide-react';
 import {
-  STAFF_PICS,
-  STAFF_REVIEWERS,
   todayIsoDate,
   type ReviewQuery,
   type ReviewStatus,
@@ -10,6 +8,7 @@ import {
   type WorkflowStatus,
 } from '../../types/tax';
 import { updateJobAssignment } from '../../lib/taxJobService';
+import { fetchStaffUsers, type StaffUser } from '../../lib/staffService';
 
 interface TabPicReviewProps {
   job: TaxJob;
@@ -26,6 +25,13 @@ export const TabPicReview: React.FC<TabPicReviewProps> = ({ job, staffName, onNo
   );
   const [newQueryText, setNewQueryText] = useState('');
   const [saving, setSaving] = useState(false);
+  const [staffList, setStaffList] = useState<StaffUser[]>([]);
+
+  useEffect(() => {
+    fetchStaffUsers()
+      .then((list) => setStaffList(list.filter((s) => s.active)))
+      .catch(() => {});
+  }, []);
 
   const openCount = job.assignment.reviewQueries.filter((q) => q.status === 'Open').length;
 
@@ -153,6 +159,8 @@ export const TabPicReview: React.FC<TabPicReviewProps> = ({ job, staffName, onNo
     );
   };
 
+  const staffNames = staffList.map((s) => s.name);
+
   return (
     <div className="space-y-6">
       {/* Assignment Grid */}
@@ -181,9 +189,10 @@ export const TabPicReview: React.FC<TabPicReviewProps> = ({ job, staffName, onNo
               onChange={(e) => setPicName(e.target.value)}
               className="w-full px-3 py-2 text-xs border border-[#D6D3D1] bg-white focus:border-[#790D16] focus:outline-none"
             >
-              {STAFF_PICS.map((p) => (
-                <option key={p} value={p}>
-                  {p}
+              <option value="Unassigned">Unassigned</option>
+              {staffNames.map((name) => (
+                <option key={name} value={name}>
+                  {name}
                 </option>
               ))}
             </select>
@@ -198,9 +207,10 @@ export const TabPicReview: React.FC<TabPicReviewProps> = ({ job, staffName, onNo
               onChange={(e) => setReviewerName(e.target.value)}
               className="w-full px-3 py-2 text-xs border border-[#D6D3D1] bg-white focus:border-[#790D16] focus:outline-none"
             >
-              {STAFF_REVIEWERS.map((r) => (
-                <option key={r} value={r}>
-                  {r}
+              <option value="Unassigned">Unassigned</option>
+              {staffNames.map((name) => (
+                <option key={name} value={name}>
+                  {name}
                 </option>
               ))}
             </select>

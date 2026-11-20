@@ -1,12 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import {
-  STAFF_PICS,
-  STAFF_REVIEWERS,
   type FormType,
   type YearOfAssessment,
 } from '../types/tax';
 import type { CreateTaxJobInput } from '../lib/taxJobService';
+import { fetchStaffUsers, type StaffUser } from '../lib/staffService';
 
 interface NewJobModalProps {
   ownerUid: string;
@@ -32,11 +31,18 @@ export const NewJobModal: React.FC<NewJobModalProps> = ({
     `TJW/IND/2025/${String(existingCount + 1).padStart(3, '0')}`
   );
   const [picName, setPicName] = useState<string>('Unassigned');
-  const [reviewerName, setReviewerName] = useState<string>('TJ Wang (Tax Director)');
+  const [reviewerName, setReviewerName] = useState<string>('Unassigned');
   const [feeAmount, setFeeAmount] = useState<string>('850');
   const [sendReminderNow, setSendReminderNow] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [staffList, setStaffList] = useState<StaffUser[]>([]);
+
+  useEffect(() => {
+    fetchStaffUsers()
+      .then((list) => setStaffList(list.filter((s) => s.active)))
+      .catch(() => {});
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,6 +75,8 @@ export const NewJobModal: React.FC<NewJobModalProps> = ({
       setSaving(false);
     }
   };
+
+  const staffNames = staffList.map((s) => s.name);
 
   return (
     <div className="fixed inset-0 z-50 bg-black/45 flex items-center justify-center p-4">
@@ -246,9 +254,10 @@ export const NewJobModal: React.FC<NewJobModalProps> = ({
                 onChange={(e) => setPicName(e.target.value)}
                 className="w-full px-3 py-2 text-sm border border-[#D6D3D1] bg-white focus:border-[#790D16] focus:outline-none"
               >
-                {STAFF_PICS.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
+                <option value="Unassigned">Unassigned</option>
+                {staffNames.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
                   </option>
                 ))}
               </select>
@@ -263,9 +272,10 @@ export const NewJobModal: React.FC<NewJobModalProps> = ({
                 onChange={(e) => setReviewerName(e.target.value)}
                 className="w-full px-3 py-2 text-sm border border-[#D6D3D1] bg-white focus:border-[#790D16] focus:outline-none"
               >
-                {STAFF_REVIEWERS.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
+                <option value="Unassigned">Unassigned</option>
+                {staffNames.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
                   </option>
                 ))}
               </select>

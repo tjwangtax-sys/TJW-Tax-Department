@@ -460,6 +460,31 @@ async function startServer() {
     });
   });
 
+  // Client Portal: Submit & Notify Team
+  app.post('/api/client-portal/:accessToken/submit-notify', (req, res) => {
+    const token = req.params.accessToken;
+    const store = readPortalStore();
+    const snapshot = store.snapshots[token];
+    if (!snapshot) {
+      return res.status(404).json({ error: 'Portal link not found.' });
+    }
+    const now = new Date().toISOString();
+    snapshot.status = '4. Docs Uploaded (Screening)';
+    snapshot.completenessStatus = 'Screening Pending';
+    snapshot.updatedAt = now;
+
+    store.pendingEvents.push({
+      eventId: `evt_${crypto.randomBytes(6).toString('hex')}`,
+      portalToken: token,
+      jobId: snapshot.jobId,
+      type: 'files_uploaded',
+      createdAt: now,
+    });
+
+    writePortalStore(store);
+    return res.json({ portal: snapshot, submittedAt: now });
+  });
+
   // --- Gemini AI Document Screening Engine ---
   app.post('/api/jobs/:jobId/screen-documents', async (req, res) => {
     const ai = createGeminiClient();

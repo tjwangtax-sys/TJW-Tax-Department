@@ -231,21 +231,8 @@ export type KpiFilterKey =
   | 'pendingSignOffPayment'
   | 'completed';
 
-export const STAFF_PICS = [
-  'Unassigned',
-  'Rachel Tan',
-  'Hafizuddin Rahman',
-  'Evelyn Chew',
-  'Kavitha Nair',
-  'Darren Lim',
-] as const;
-
-export const STAFF_REVIEWERS = [
-  'Unassigned',
-  'TJ Wang (Tax Director)',
-  'Siti Mariam (Senior Manager)',
-  'Kelvin Ooi (Tax Manager)',
-] as const;
+export const STAFF_PICS: string[] = ['Unassigned'];
+export const STAFF_REVIEWERS: string[] = ['Unassigned'];
 
 export const MALAYSIAN_TAX_CHECKLIST = [
   {

@@ -338,6 +338,11 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.token.email_verified == true;
     }
 
+    // --- Collection: staffUsers ---
+    match /staffUsers/{userId} {
+      allow read, write: if request.auth != null && request.auth.token.email_verified == true;
+    }
+
     // --- Collection: admins ---
     match /admins/{userId} {
       allow get: if isVerifiedUser() && isValidId(userId) && (request.auth.uid == userId || isAdmin());

@@ -26,9 +26,9 @@ interface MasterJobTableProps {
   onToggleSelectAll: () => void;
   onOpenJob: (job: TaxJob) => void;
   onOpenClientPortal: (token: string) => void;
+  onCopyPortalLink: (job: TaxJob) => void;
+  onWhatsAppFollowUp: (job: TaxJob) => void;
   onCreateFirstJob: () => void;
-  onSeedSampleJobs: () => void;
-  seedingSamples: boolean;
 }
 
 function getStatusAccent(status: WorkflowStatus): { bg: string; text: string; border: string } {
@@ -58,9 +58,9 @@ export const MasterJobTable: React.FC<MasterJobTableProps> = ({
   onToggleSelectAll,
   onOpenJob,
   onOpenClientPortal,
+  onCopyPortalLink,
+  onWhatsAppFollowUp,
   onCreateFirstJob,
-  onSeedSampleJobs,
-  seedingSamples,
 }) => {
   const allSelected = jobs.length > 0 && jobs.every((j) => selectedIds.has(j.id));
 
@@ -102,14 +102,6 @@ export const MasterJobTable: React.FC<MasterJobTableProps> = ({
             className="px-4 py-2 text-xs font-semibold bg-[#790D16] text-white hover:bg-[#5E0A11] transition-colors cursor-pointer"
           >
             + New Tax Job
-          </button>
-          <button
-            type="button"
-            disabled={seedingSamples}
-            onClick={onSeedSampleJobs}
-            className="px-4 py-2 text-xs font-semibold border border-[#790D16] text-[#790D16] bg-white hover:bg-[#F5EFE1] disabled:opacity-50 transition-colors cursor-pointer"
-          >
-            {seedingSamples ? 'Seeding Sample Jobs...' : 'Seed Sample Jobs (Form BE, B, M)'}
           </button>
         </div>
       </div>
@@ -459,6 +451,22 @@ export const MasterJobTable: React.FC<MasterJobTableProps> = ({
                     onClick={(e) => e.stopPropagation()}
                   >
                     <div className="inline-flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => onCopyPortalLink(job)}
+                        title="Copy Client Portal Link"
+                        className="text-[11px] font-mono px-1.5 py-0.5 border border-[#D6D3D1] bg-white text-[#57534E] hover:text-[#790D16] hover:bg-[#F5EFE1] transition-colors cursor-pointer"
+                      >
+                        Copy Link
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onWhatsAppFollowUp(job)}
+                        title="WhatsApp Follow-Up"
+                        className="text-[11px] font-medium px-1.5 py-0.5 border border-[#BBF7D0] bg-[#F0FDF4] text-[#166534] hover:bg-[#DCFCE7] transition-colors cursor-pointer"
+                      >
+                        WhatsApp
+                      </button>
                       <button
                         type="button"
                         onClick={() => onOpenClientPortal(job.portalToken)}

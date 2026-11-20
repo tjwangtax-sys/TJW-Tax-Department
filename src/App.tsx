@@ -10,13 +10,13 @@ import {
   FileSpreadsheet,
   FileText,
   RefreshCw,
-  Database,
 } from 'lucide-react';
-import { auth } from './lib/firebase';
+import { auth, db } from './lib/firebase';
+import { collection, getDocs, writeBatch } from 'firebase/firestore';
 import {
+  clearAllTaxJobs,
   createTaxJob,
-  seedInitialTaxJobsIfEmpty,
-  seedSampleTaxJobs,
+  rolloverTaxJobs,
   subscribeTaxJobs,
   syncPortalsWithServer,
 } from './lib/taxJobService';
@@ -27,9 +27,10 @@ import {
 } from './lib/exportUtils';
 import {
   COLUMN_GROUP_LABELS,
-  STAFF_PICS,
-  STAFF_REVIEWERS,
   WORKFLOW_STAGES,
+  buildPortalUrl,
+  buildWhatsAppLink,
+  getStageNumber,
   type ColumnGroupKey,
   type FormType,
   type KpiFilterKey,
@@ -46,6 +47,7 @@ import { BulkReminderModal } from './components/BulkReminderModal';
 import { JobDetailDrawer } from './components/JobDetailDrawer';
 import { ClientPortalView } from './components/ClientPortalView';
 import { TeamAccessModal } from './components/TeamAccessModal';
+import { RolloverYamodal } from './components/RolloverYamodal';
 
 function parsePortalTokenFromPath(pathname: string): string | null {
   const match = pathname.match(/^\/client-portal\/([a-zA-Z0-9_\-]+)\/?$/);
@@ -58,6 +60,9 @@ function TaxAppContent() {
   );
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
+
+  const staffDisplayName = user?.displayName || user?.email || 'Tax Staff';
+  const staffEmail = user?.email || '';
 
   // Tax Jobs State
   const [jobs, setJobs] = useState<TaxJob[]>([]);
@@ -72,6 +77,7 @@ function TaxAppContent() {
   const [filterStatus, setFilterStatus] = useState<WorkflowStatus | 'ALL'>('ALL');
   const [filterPic, setFilterPic] = useState<string>('ALL');
   const [filterReviewer, setFilterReviewer] = useState<string>('ALL');
+  const [myAssignedOnly, setMyAssignedOnly] = useState(false);
 
   const [visibleGroups, setVisibleGroups] = useState<Record<ColumnGroupKey, boolean>>({
     profile: true,
@@ -89,8 +95,9 @@ function TaxAppContent() {
   const [showNewJobModal, setShowNewJobModal] = useState(false);
   const [showBulkReminderModal, setShowBulkReminderModal] = useState(false);
   const [showTeamModal, setShowTeamModal] = useState(false);
+  const [showRolloverModal, setShowRolloverModal] = useState(false);
   const [syncingPortals, setSyncingPortals] = useState(false);
-  const [seedingSamples, setSeedingSamples] = useState(false);
+  const [clearingTestData, setClearingTestData] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   const notify = (msg: string) => {
@@ -98,6 +105,38 @@ function TaxAppContent() {
     setTimeout(() => {
       setToastMsg((prev) => (prev === msg ? null : prev));
     }, 3500);
+  };
+
+  const handleCopyPortalLink = (job: TaxJob) => {
+    const url = buildPortalUrl(job.portalToken);
+    navigator.clipboard.writeText(url);
+    notify(`Copied secure portal link for ${job.clientName}`);
+  };
+
+  const handleWhatsAppFollowUp = (job: TaxJob) => {
+    const n = getStageNumber(job.status);
+    const link = buildPortalUrl(job.portalToken);
+    let msg = '';
+    if (n <= 3) {
+      msg = `Hi ${job.clientName}, kindly submit your LHDN tax documents for YA ${job.yearOfAssessment} via your secure TJW Group portal: ${link}`;
+    } else if (n === 4 || n === 5) {
+      const missing = job.documents.missingItems.length > 0 ? job.documents.missingItems.join(', ') : 'requested supporting documents';
+      msg = `Hi ${job.clientName}, regarding your YA ${job.yearOfAssessment} Form ${job.formType} tax filing, please provide the following missing items: ${missing}. Portal: ${link}`;
+    } else if (n >= 11 && n <= 13) {
+      msg = `Hi ${job.clientName}, your YA ${job.yearOfAssessment} tax computation draft & fee invoice (RM ${job.billing.totalWithTax}) are ready for your sign-off and payment. Portal: ${link}`;
+    } else {
+      msg = `Hi ${job.clientName}, here is your secure TJW Group tax portal link for YA ${job.yearOfAssessment}: ${link}`;
+    }
+    const waUrl = buildWhatsAppLink(job.phone, msg);
+    window.open(waUrl, '_blank');
+  };
+
+  const handleRollover = async (targetYA: YearOfAssessment, ids: string[]) => {
+    const targets = jobs.filter((j) => ids.includes(j.id));
+    if (targets.length === 0) return;
+    const count = await rolloverTaxJobs(targets, targetYA, user?.uid || '');
+    notify(`Successfully rolled over ${count} client engagement(s) to YA ${targetYA}.`);
+    setSelectedIds(new Set());
   };
 
   // Sync browser popstate for SPA navigation
@@ -139,17 +178,9 @@ function TaxAppContent() {
     let unsub: (() => void) | null = null;
     let cancelled = false;
 
-    const init = async () => {
+    const init = () => {
       setLoadingJobs(true);
       setFirestoreError(null);
-      try {
-        await seedInitialTaxJobsIfEmpty(user.uid, user.email);
-      } catch (err: unknown) {
-        if (!cancelled) {
-          setFirestoreError(err instanceof Error ? err.message : 'Unable to seed initial tax jobs.');
-        }
-      }
-      if (cancelled) return;
       unsub = subscribeTaxJobs(
         user.uid,
         user.email,
@@ -164,7 +195,7 @@ function TaxAppContent() {
       );
     };
 
-    void init();
+    init();
     return () => {
       cancelled = true;
       if (unsub) unsub();
@@ -213,23 +244,48 @@ function TaxAppContent() {
     }
   };
 
-  const handleSeedSampleJobs = async () => {
-    if (!user) return;
-    setSeedingSamples(true);
+
+
+  const handleClearAllTestData = async () => {
+    if (!window.confirm('Are you sure you want to delete ALL existing tax jobs from Firestore? This will reset the app to an empty live state.')) {
+      return;
+    }
+    setClearingTestData(true);
     setFirestoreError(null);
     try {
-      const count = await seedSampleTaxJobs(user.uid, jobs);
-      notify(`Seeded ${count} sample Malaysian individual tax jobs (Form BE, Form B, Form M).`);
+      const count = await clearAllTaxJobs();
+      notify(`Successfully cleared ${count} tax job record(s) from Firestore.`);
     } catch (err: unknown) {
-      setFirestoreError(err instanceof Error ? err.message : 'Unable to seed sample tax jobs.');
+      setFirestoreError(err instanceof Error ? err.message : 'Failed to clear test data.');
     } finally {
-      setSeedingSamples(false);
+      setClearingTestData(false);
     }
   };
+
+  const availablePics = useMemo(() => {
+    const s = new Set<string>();
+    jobs.forEach((j) => {
+      if (j.assignment?.picName) s.add(j.assignment.picName);
+    });
+    if (s.size === 0) s.add('Unassigned');
+    return Array.from(s);
+  }, [jobs]);
+
+  const availableReviewers = useMemo(() => {
+    const s = new Set<string>();
+    jobs.forEach((j) => {
+      if (j.assignment?.reviewerName) s.add(j.assignment.reviewerName);
+    });
+    if (s.size === 0) s.add('Unassigned');
+    return Array.from(s);
+  }, [jobs]);
 
   // Filtered jobs computation
   const filteredJobs = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
+    const staffNameLower = staffDisplayName.toLowerCase();
+    const staffEmailUser = staffEmail.split('@')[0].toLowerCase();
+
     return jobs.filter((job) => {
       if (!matchesKpiFilter(job, kpiFilter)) return false;
       if (filterYA !== 'ALL' && job.yearOfAssessment !== filterYA) return false;
@@ -237,6 +293,14 @@ function TaxAppContent() {
       if (filterStatus !== 'ALL' && job.status !== filterStatus) return false;
       if (filterPic !== 'ALL' && job.assignment.picName !== filterPic) return false;
       if (filterReviewer !== 'ALL' && job.assignment.reviewerName !== filterReviewer) return false;
+
+      if (myAssignedOnly) {
+        const picLower = job.assignment.picName.toLowerCase();
+        const revLower = job.assignment.reviewerName.toLowerCase();
+        const matchesPic = picLower.includes(staffNameLower) || picLower.includes(staffEmailUser);
+        const matchesRev = revLower.includes(staffNameLower) || revLower.includes(staffEmailUser);
+        if (!matchesPic && !matchesRev) return false;
+      }
 
       if (q) {
         const haystack = [
@@ -253,7 +317,7 @@ function TaxAppContent() {
       }
       return true;
     });
-  }, [jobs, kpiFilter, filterYA, filterForm, filterStatus, filterPic, filterReviewer, searchQuery]);
+  }, [jobs, kpiFilter, filterYA, filterForm, filterStatus, filterPic, filterReviewer, searchQuery, myAssignedOnly, staffDisplayName, staffEmail]);
 
   const activeJob = useMemo(
     () => (activeJobId ? jobs.find((j) => j.id === activeJobId) || null : null),
@@ -289,8 +353,6 @@ function TaxAppContent() {
   if (!user) {
     return <AuthGate />;
   }
-
-  const staffDisplayName = user.displayName || user.email || 'Tax Staff';
 
   const handleToggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -450,14 +512,14 @@ function TaxAppContent() {
                 {toastMsg}
               </div>
             )}
+
             <button
               type="button"
-              disabled={seedingSamples}
-              onClick={handleSeedSampleJobs}
-              className="px-2.5 py-1.5 text-xs font-semibold border border-[#790D16] bg-white text-[#790D16] hover:bg-[#F5EFE1] disabled:opacity-50 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+              disabled={clearingTestData}
+              onClick={handleClearAllTestData}
+              className="px-2.5 py-1.5 text-xs font-semibold border border-red-300 bg-white text-red-700 hover:bg-red-50 disabled:opacity-50 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
             >
-              <Database className="w-3.5 h-3.5" />
-              <span>{seedingSamples ? 'Seeding...' : 'Seed Sample Jobs (BE/B/M)'}</span>
+              <span>{clearingTestData ? 'Clearing...' : 'Clear Test Data'}</span>
             </button>
             <button
               type="button"
@@ -547,7 +609,7 @@ function TaxAppContent() {
             className="px-2.5 py-1.5 text-xs border border-[#D6D3D1] bg-white focus:border-[#790D16] focus:outline-none"
           >
             <option value="ALL">All PICs</option>
-            {STAFF_PICS.map((p) => (
+            {availablePics.map((p) => (
               <option key={p} value={p}>
                 {p}
               </option>
@@ -562,12 +624,25 @@ function TaxAppContent() {
             className="px-2.5 py-1.5 text-xs border border-[#D6D3D1] bg-white max-w-[160px] focus:border-[#790D16] focus:outline-none"
           >
             <option value="ALL">All Reviewers</option>
-            {STAFF_REVIEWERS.map((r) => (
+            {availableReviewers.map((r) => (
               <option key={r} value={r}>
                 {r}
               </option>
             ))}
           </select>
+
+          {/* My Assigned Jobs Toggle */}
+          <button
+            type="button"
+            onClick={() => setMyAssignedOnly((v) => !v)}
+            className={`px-3 py-1.5 text-xs font-semibold border transition-colors cursor-pointer inline-flex items-center gap-1.5 ${
+              myAssignedOnly
+                ? 'bg-[#790D16] text-white border-[#790D16]'
+                : 'bg-white text-[#44403C] border-[#D6D3D1] hover:bg-[#F5EFE1]'
+            }`}
+          >
+            <span>My Assigned Jobs</span>
+          </button>
 
           {hasActiveFilters && (
             <button
@@ -693,6 +768,13 @@ function TaxAppContent() {
               </button>
               <button
                 type="button"
+                onClick={() => setShowRolloverModal(true)}
+                className="px-3 py-1.5 text-xs font-semibold bg-[#1E3A5F] text-white hover:bg-[#152A45] inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>Rollover YA</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => exportJobsToExcel(selectedJobs)}
                 className="px-3 py-1.5 text-xs font-semibold bg-white border border-[#D6D3D1] text-[#292524] hover:bg-[#FAF9F6] cursor-pointer"
               >
@@ -727,9 +809,9 @@ function TaxAppContent() {
           onToggleSelectAll={handleToggleSelectAll}
           onOpenJob={(job) => setActiveJobId(job.id)}
           onOpenClientPortal={navigateToClientPortal}
+          onCopyPortalLink={handleCopyPortalLink}
+          onWhatsAppFollowUp={handleWhatsAppFollowUp}
           onCreateFirstJob={() => setShowNewJobModal(true)}
-          onSeedSampleJobs={handleSeedSampleJobs}
-          seedingSamples={seedingSamples}
         />
       </main>
 
@@ -761,6 +843,14 @@ function TaxAppContent() {
 
       {showTeamModal && (
         <TeamAccessModal onClose={() => setShowTeamModal(false)} onNotify={notify} />
+      )}
+
+      {showRolloverModal && selectedJobs.length > 0 && (
+        <RolloverYamodal
+          selectedJobs={selectedJobs}
+          onClose={() => setShowRolloverModal(false)}
+          onRollover={handleRollover}
+        />
       )}
 
       {activeJob && (

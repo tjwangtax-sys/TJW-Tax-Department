@@ -13,7 +13,6 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from './firebase';
-import { buildSeedTaxJobs } from '../data/seedJobs';
 import {
   clampString,
   generatePortalToken,
@@ -43,7 +42,6 @@ export function isBootstrappedAdminEmail(email: string | null | undefined): bool
   return BOOTSTRAPPED_ADMIN_EMAILS.has(email.trim().toLowerCase());
 }
 
-let inFlightSeedPromise: Promise<number> | null = null;
 
 function sanitizeBookIn(b: BookInSection): BookInSection {
   return {
@@ -193,83 +191,7 @@ function sanitizeSubmission(s: SubmissionSection): SubmissionSection {
   };
 }
 
-export async function seedInitialTaxJobsIfEmpty(uid: string, email: string | null): Promise<number> {
-  if (inFlightSeedPromise) {
-    return inFlightSeedPromise;
-  }
 
-  const run = async (): Promise<number> => {
-    const isAdmin = isBootstrappedAdminEmail(email);
-    const colRef = collection(db, COLLECTION_NAME);
-    const q = isAdmin ? query(colRef) : query(colRef, where('ownerUid', '==', uid));
-
-    let existingCount = 0;
-    try {
-      const snap = await getDocs(q);
-      existingCount = snap.size;
-    } catch (error) {
-      handleFirestoreError(error, OperationType.LIST, COLLECTION_NAME);
-    }
-
-    if (existingCount > 0) return 0;
-
-    return seedSampleTaxJobs(uid, []);
-  };
-
-  inFlightSeedPromise = run().finally(() => {
-    inFlightSeedPromise = null;
-  });
-
-  return inFlightSeedPromise;
-}
-
-export async function seedSampleTaxJobs(
-  uid: string,
-  existingJobs: TaxJob[]
-): Promise<number> {
-  const currentUid = auth.currentUser?.uid || uid;
-  const existingRefs = new Set(existingJobs.map((j) => j.fileRef));
-  const rawSeeds = buildSeedTaxJobs(currentUid);
-  const toInsert = rawSeeds.filter((s) => !existingRefs.has(s.fileRef));
-  const targetSeeds = toInsert.length > 0 ? toInsert : rawSeeds;
-
-  const stamp = Date.now().toString(36);
-  const batch = writeBatch(db);
-  let inserted = 0;
-
-  for (let i = 0; i < targetSeeds.length; i++) {
-    const seed = targetSeeds[i];
-    const uniqueId = `job_seed_${stamp}_${String(i + 1).padStart(2, '0')}`;
-    const uniqueToken = generatePortalToken(seed.yearOfAssessment);
-    const ref = doc(db, COLLECTION_NAME, uniqueId);
-
-    batch.set(ref, {
-      ...seed,
-      id: uniqueId,
-      ownerUid: currentUid,
-      portalToken: uniqueToken,
-      fileRef:
-        toInsert.length > 0
-          ? seed.fileRef
-          : `${seed.fileRef}-${stamp.slice(-3).toUpperCase()}`,
-      bookIn: sanitizeBookIn(seed.bookIn),
-      documents: sanitizeDocuments(seed.documents),
-      assignment: sanitizeAssignment(seed.assignment),
-      billing: sanitizeBilling(seed.billing),
-      submission: sanitizeSubmission(seed.submission),
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-    inserted += 1;
-  }
-
-  try {
-    await batch.commit();
-    return inserted;
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, COLLECTION_NAME);
-  }
-}
 
 export function subscribeTaxJobs(
   uid: string,
@@ -660,3 +582,127 @@ export async function rotateJobPortalToken(jobId: string, oldToken: string, newT
     handleFirestoreError(error, OperationType.UPDATE, docPath);
   }
 }
+
+export async function rolloverTaxJobs(
+  selectedJobs: TaxJob[],
+  targetYA: YearOfAssessment,
+  ownerUid: string
+): Promise<number> {
+  const currentUid = auth.currentUser?.uid || ownerUid;
+  const stamp = Date.now().toString(36);
+  const batch = writeBatch(db);
+  let rolled = 0;
+
+  for (let i = 0; i < selectedJobs.length; i++) {
+    const job = selectedJobs[i];
+    const cleanId = `job_rollover_${stamp}_${String(i + 1).padStart(2, '0')}`;
+    const portalToken = generatePortalToken(targetYA);
+    const ref = doc(db, COLLECTION_NAME, cleanId);
+
+    const baseFee = job.billing.feeAmount || 350;
+    const sst = Number((baseFee * 0.08).toFixed(2));
+
+    const newJob: Omit<TaxJob, 'createdAt' | 'updatedAt'> = {
+      id: cleanId,
+      ownerUid: currentUid,
+      fileRef: `${job.fileRef.split('/YA')[0]}/YA${targetYA}/${cleanId.slice(-4)}`,
+      clientName: job.clientName,
+      icOrPassport: job.icOrPassport,
+      tinNumber: job.tinNumber,
+      email: job.email,
+      phone: job.phone,
+      formType: job.formType,
+      yearOfAssessment: targetYA,
+      status: '1. Reminder Sent',
+      portalToken,
+      bookIn: sanitizeBookIn({
+        reminderSentDate: todayIsoDate(),
+        followUpCount: 1,
+        followUpLogs: [
+          {
+            id: `fu_${Date.now()}`,
+            date: todayIsoDate(),
+            channel: 'WhatsApp',
+            note: `Rollover engagement created for YA ${targetYA} from YA ${job.yearOfAssessment}.`,
+            loggedBy: job.assignment.picName !== 'Unassigned' ? job.assignment.picName : 'Tax Admin',
+          },
+        ],
+        bookedInDate: '',
+        isBookedIn: false,
+      }),
+      documents: sanitizeDocuments({
+        completenessStatus: 'Not Uploaded',
+        uploadedFiles: [],
+        bookInListing: [],
+        missingItems: [],
+        detectedReliefCategories: [],
+        screeningSummary: '',
+        lastScreenedAt: '',
+      }),
+      assignment: sanitizeAssignment({
+        picName: job.assignment.picName,
+        reviewerName: job.assignment.reviewerName,
+        startedAt: '',
+        targetCompletionDate: '',
+        submittedForReviewAt: '',
+        reviewClearedAt: '',
+        reviewStatus: 'Unassigned',
+        reviewQueries: [],
+      }),
+      billing: sanitizeBilling({
+        workDoneNotes: '',
+        feeAmount: baseFee,
+        disbursements: 0,
+        sstAmount: sst,
+        totalWithTax: Number((baseFee + sst).toFixed(2)),
+        draftSentDate: '',
+        followUpCount: 0,
+        followUpLogs: [],
+        isSignedBack: false,
+        signedBackDate: '',
+        signedCopyUrl: '',
+        signedCopyFileName: '',
+        isPaid: false,
+        paymentDate: '',
+        receiptRef: '',
+      }),
+      submission: sanitizeSubmission({
+        lhdnSubmissionDate: '',
+        acknowledgementNo: '',
+        taxPayableOrRefund: 0,
+        taxPosition: 'Nil',
+        completedAt: '',
+      }),
+    };
+
+    batch.set(ref, {
+      ...newJob,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    rolled += 1;
+  }
+
+  try {
+    await batch.commit();
+    return rolled;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, COLLECTION_NAME);
+  }
+}
+
+export async function clearAllTaxJobs(): Promise<number> {
+  try {
+    const snap = await getDocs(collection(db, COLLECTION_NAME));
+    if (snap.empty) return 0;
+    const batch = writeBatch(db);
+    snap.docs.forEach((d) => {
+      batch.delete(d.ref);
+    });
+    await batch.commit();
+    return snap.docs.length;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, COLLECTION_NAME);
+  }
+}
+
