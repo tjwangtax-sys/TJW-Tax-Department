@@ -41,8 +41,7 @@ export const TeamAccessModal: React.FC<TeamAccessModalProps> = ({ onClose, onNot
     }
     setErrorMsg(null);
     try {
-      const fakeUid = `staff_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-      await upsertStaffUser(fakeUid, newEmail.trim(), newName.trim() || newEmail.split('@')[0], newRole, true);
+      await upsertStaffUser(newEmail.trim(), newName.trim() || newEmail.split('@')[0], newRole, true);
       onNotify(`Added staff member ${newEmail} as ${newRole}.`);
       setNewEmail('');
       setNewName('');
@@ -56,7 +55,7 @@ export const TeamAccessModal: React.FC<TeamAccessModalProps> = ({ onClose, onNot
   const handleToggleActive = async (staff: StaffUser) => {
     try {
       const nextActive = !staff.active;
-      await setStaffActiveStatus(staff.uid, nextActive);
+      await setStaffActiveStatus(staff.email, nextActive);
       onNotify(`Updated ${staff.email} active status to ${nextActive ? 'Active' : 'Deactivated'}.`);
       await loadStaff();
     } catch (err) {
@@ -66,7 +65,7 @@ export const TeamAccessModal: React.FC<TeamAccessModalProps> = ({ onClose, onNot
 
   const handleChangeRole = async (staff: StaffUser, newRoleVal: StaffRole) => {
     try {
-      await setStaffRole(staff.uid, newRoleVal);
+      await setStaffRole(staff.email, newRoleVal);
       onNotify(`Updated ${staff.email} role to ${newRoleVal}.`);
       await loadStaff();
     } catch (err) {
@@ -181,7 +180,7 @@ export const TeamAccessModal: React.FC<TeamAccessModalProps> = ({ onClose, onNot
                 </thead>
                 <tbody className="divide-y divide-[#E5E7EB]">
                   {staffList.map((st) => (
-                    <tr key={st.uid} className="hover:bg-[#FAF9F6]">
+                    <tr key={st.email} className="hover:bg-[#FAF9F6]">
                       <td className="p-3 font-medium text-[#1C1917]">{st.name}</td>
                       <td className="p-3 font-mono text-[#57534E]">{st.email}</td>
                       <td className="p-3">

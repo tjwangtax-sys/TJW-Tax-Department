@@ -12,7 +12,7 @@ import { db } from './firebase';
 export type StaffRole = 'Admin' | 'Reviewer' | 'PIC';
 
 export interface StaffUser {
-  uid: string;
+  uid?: string;
   email: string;
   name: string;
   role: StaffRole;
@@ -35,19 +35,27 @@ export async function ensureStaffUserRecord(user: {
   const emailLower = user.email.trim().toLowerCase();
   const isBootstrap = emailLower === BOOTSTRAPPED_ADMIN || emailLower.endsWith('@tjwang.com.my');
 
-  const ref = doc(db, COLLECTION_NAME, user.uid);
+  const ref = doc(db, COLLECTION_NAME, emailLower);
   const snap = await getDoc(ref);
 
   if (snap.exists()) {
     const data = snap.data() as StaffUser;
+    const updates: Record<string, unknown> = {};
+    if (data.uid !== user.uid) {
+      updates.uid = user.uid;
+    }
     if (isBootstrap && (data.role !== 'Admin' || !data.active)) {
-      await updateDoc(ref, { role: 'Admin', active: true });
-      return { ...data, role: 'Admin', active: true };
+      updates.role = 'Admin';
+      updates.active = true;
+    }
+    if (Object.keys(updates).length > 0) {
+      await updateDoc(ref, updates);
+      return { ...data, ...updates };
     }
     return data;
   }
 
-  // If bootstrap admin, auto-bootstrap record
+  // If bootstrap admin, auto-bootstrap record keyed by email
   if (isBootstrap) {
     const newStaff: StaffUser = {
       uid: user.uid,
@@ -67,7 +75,10 @@ export async function ensureStaffUserRecord(user: {
 export async function fetchStaffUsers(): Promise<StaffUser[]> {
   try {
     const snap = await getDocs(collection(db, COLLECTION_NAME));
-    return snap.docs.map((d) => d.data() as StaffUser);
+    return snap.docs.map((d) => ({
+      email: d.id,
+      ...d.data(),
+    }) as StaffUser);
   } catch (err) {
     console.error('Failed to fetch staff users:', err);
     return [];
@@ -75,19 +86,18 @@ export async function fetchStaffUsers(): Promise<StaffUser[]> {
 }
 
 export async function upsertStaffUser(
-  uid: string,
   email: string,
   name: string,
   role: StaffRole,
   active: boolean
 ): Promise<void> {
-  const ref = doc(db, COLLECTION_NAME, uid);
+  const emailKey = email.trim().toLowerCase();
+  const ref = doc(db, COLLECTION_NAME, emailKey);
   await setDoc(
     ref,
     {
-      uid,
-      email: email.trim().toLowerCase(),
-      name: name.trim() || email.split('@')[0],
+      email: emailKey,
+      name: name.trim() || emailKey.split('@')[0],
       role,
       active,
       createdAt: serverTimestamp(),
@@ -96,12 +106,12 @@ export async function upsertStaffUser(
   );
 }
 
-export async function setStaffActiveStatus(uid: string, active: boolean): Promise<void> {
-  const ref = doc(db, COLLECTION_NAME, uid);
+export async function setStaffActiveStatus(email: string, active: boolean): Promise<void> {
+  const ref = doc(db, COLLECTION_NAME, email.trim().toLowerCase());
   await updateDoc(ref, { active });
 }
 
-export async function setStaffRole(uid: string, role: StaffRole): Promise<void> {
-  const ref = doc(db, COLLECTION_NAME, uid);
+export async function setStaffRole(email: string, role: StaffRole): Promise<void> {
+  const ref = doc(db, COLLECTION_NAME, email.trim().toLowerCase());
   await updateDoc(ref, { role });
 }

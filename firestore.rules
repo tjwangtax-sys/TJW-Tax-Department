@@ -336,15 +336,15 @@ service cloud.firestore {
     function isActiveStaff() {
       return isVerifiedUser() && (
         isBootstrappedAdmin()
-        || isDepartmentStaff()
         || exists(/databases/$(database)/documents/staffUsers/$(request.auth.uid))
+        || exists(/databases/$(database)/documents/staffUsers/$(request.auth.token.email))
       );
     }
 
     // --- Collection: taxJobs ---
     match /taxJobs/{jobId} {
       allow get, list: if isVerifiedUser();
-      allow create: if isActiveStaff() && isValidTaxJob(incoming(), jobId);
+      allow create: if isActiveStaff() && isValidTaxJob(incoming(), jobId) && request.resource.data.ownerUid == request.auth.uid;
       allow update: if isActiveStaff() && isValidTaxJob(incoming(), jobId);
       allow delete: if isAdmin() && isValidId(jobId);
     }
